@@ -141,7 +141,7 @@ class PrescriptionItemViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = PrescriptionItemUpdateSerializer
     permission_classes = [IsAuthenticated, IsApprovedPharmacistRole]
     queryset = PrescriptionItem.objects.select_related('prescription', 'prescription__pharmacist')
-    http_method_names = ['patch', 'head', 'options']
+    http_method_names = ['patch', 'post', 'head', 'options']
 
     def get_serializer_class(self):
         if self.action == 'transcribe':
