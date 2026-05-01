@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import User
+from .models import PhoneOTP, User
 
 
 @admin.register(User)
@@ -55,4 +55,28 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
     )
+
+
+@admin.register(PhoneOTP)
+class PhoneOTPAdmin(admin.ModelAdmin):
+    list_display = (
+        "phone_number",
+        "purpose",
+        "user",
+        "expires_at",
+        "used_at",
+        "attempts",
+        "max_attempts",
+        "created_at",
+    )
+    list_filter = ("purpose", "used_at", "expires_at")
+    search_fields = ("phone_number", "user__email", "user__phone_number")
+    readonly_fields = (
+        "code_hash",
+        "created_at",
+        "updated_at",
+        "used_at",
+        "attempts",
+    )
+    autocomplete_fields = ("user",)
 

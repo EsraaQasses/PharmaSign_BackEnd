@@ -1,48 +1,324 @@
 from datetime import date
 
+from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.choices import GenderChoices, HearingDisabilityLevelChoices, RoleChoices
 from organizations.models import Organization
 from patients.models import PatientEnrollment, PatientProfile
 
-from .models import User
+from .models import PhoneOTP, User
 
 
 class AuthAndPatientFlowTests(APITestCase):
-    def test_patient_self_register_creates_profile_and_qr(self):
+    def request_registration_otp(self, phone_number):
         response = self.client.post(
-            reverse('accounts:patient_self_register'),
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": phone_number},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.data["debug_otp"]
+
+    @override_settings(DEBUG=True)
+    def test_request_registration_otp_with_phone_number_returns_debug_otp(self):
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["detail"], "Registration OTP generated successfully.")
+        self.assertEqual(response.data["expires_in_seconds"], 300)
+        self.assertRegex(response.data["debug_otp"], r"^\d{6}$")
+        self.assertEqual(PhoneOTP.objects.count(), 1)
+        self.assertEqual(
+            PhoneOTP.objects.get().purpose,
+            PhoneOTP.PURPOSE_PATIENT_REGISTER,
+        )
+        self.assertNotIn(response.data["debug_otp"], PhoneOTP.objects.get().code_hash)
+
+    @override_settings(DEBUG=True)
+    def test_request_registration_otp_with_phone_alias_works(self):
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone": "5557001"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("debug_otp", response.data)
+
+    def test_request_registration_otp_for_existing_phone_returns_400(self):
+        User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557002",
+            role=RoleChoices.PATIENT,
+        )
+
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557002"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Phone number is already registered.")
+
+    @override_settings(DEBUG=False)
+    def test_debug_false_registration_otp_response_does_not_include_debug_otp(self):
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557003"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("debug_otp", response.data)
+        self.assertNotIn("code_hash", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_without_otp_fails(self):
+        response = self.client.post(
+            reverse("accounts:patient_register"),
             {
-                'email': 'patient@example.com',
-                'password': 'StrongPass123!',
-                'full_name': 'Patient One',
-                'phone_number': '5551000',
+                "password": "StrongPass123!",
+                "full_name": "Missing OTP",
+                "phone_number": "5557004",
             },
-            format='json',
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_with_correct_otp_succeeds(self):
+        otp = self.request_registration_otp("5557005")
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Phone Patient",
+                "phone_number": "5557005",
+                "otp": otp,
+            },
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        user = User.objects.get(email='patient@example.com')
-        self.assertEqual(user.role, RoleChoices.PATIENT)
-        profile = user.patient_profile
-        self.assertTrue(profile.qr_is_active)
-        self.assertTrue(profile.qr_code_value)
+        user = User.objects.get(phone_number="5557005")
+        self.assertIsNone(user.email)
+        self.assertEqual(response.data["user"]["email"], None)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
 
-    def test_admin_can_create_patient_account_from_enrollment(self):
+    @override_settings(DEBUG=True)
+    def test_patient_register_with_phone_alias_and_otp_succeeds(self):
+        otp = self.request_registration_otp("5557006")
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "name": "Alias Patient",
+                "phone": "5557006",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(phone_number="5557006")
+        self.assertEqual(user.patient_profile.full_name, "Alias Patient")
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_with_optional_email_and_otp_succeeds(self):
+        otp = self.request_registration_otp("5557007")
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "email": "patient.optional@example.com",
+                "password": "StrongPass123!",
+                "confirm_password": "StrongPass123!",
+                "full_name": "Optional Email",
+                "phone_number": "5557007",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["user"]["email"], "patient.optional@example.com")
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_duplicate_email_rejected_when_email_provided(self):
+        User.objects.create_user(
+            email="patient.duplicate@example.com",
+            password="StrongPass123!",
+            phone_number="5557008",
+            role=RoleChoices.PATIENT,
+        )
+        otp = self.request_registration_otp("5557009")
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "email": "patient.duplicate@example.com",
+                "password": "StrongPass123!",
+                "full_name": "Duplicate Patient",
+                "phone_number": "5557009",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_duplicate_phone_number_fails(self):
+        User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557010",
+            role=RoleChoices.PATIENT,
+        )
+        challenge = PhoneOTP(
+            phone_number="5557010",
+            purpose=PhoneOTP.PURPOSE_PATIENT_REGISTER,
+            expires_at=timezone.now() + timezone.timedelta(minutes=5),
+        )
+        challenge.set_code("123456")
+        challenge.save()
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Duplicate Phone",
+                "phone_number": "5557010",
+                "otp": "123456",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone_number", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_patient_register_wrong_otp_fails_and_increments_attempts(self):
+        self.request_registration_otp("5557011")
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Wrong OTP",
+                "phone_number": "5557011",
+                "otp": "000000",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Invalid OTP.")
+        challenge = PhoneOTP.objects.get(phone_number="5557011")
+        self.assertEqual(challenge.attempts, 1)
+        self.assertIsNone(challenge.used_at)
+
+    @override_settings(DEBUG=True)
+    def test_after_five_wrong_attempts_registration_otp_becomes_unusable(self):
+        self.request_registration_otp("5557012")
+
+        response = None
+        for _ in range(5):
+            response = self.client.post(
+                reverse("accounts:patient_register"),
+                {
+                    "password": "StrongPass123!",
+                    "full_name": "Locked OTP",
+                    "phone_number": "5557012",
+                    "otp": "000000",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Too many OTP attempts.")
+        challenge = PhoneOTP.objects.get(phone_number="5557012")
+        self.assertEqual(challenge.attempts, 5)
+        self.assertIsNotNone(challenge.used_at)
+
+    @override_settings(DEBUG=True)
+    def test_expired_registration_otp_fails(self):
+        otp = self.request_registration_otp("5557013")
+        challenge = PhoneOTP.objects.get(phone_number="5557013")
+        challenge.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        challenge.save(update_fields=["expires_at", "updated_at"])
+
+        response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Expired OTP",
+                "phone_number": "5557013",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "OTP has expired.")
+
+    @override_settings(DEBUG=True)
+    def test_used_registration_otp_cannot_be_reused(self):
+        otp = self.request_registration_otp("5557014")
+        first_response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "First OTP",
+                "phone_number": "5557014",
+                "otp": otp,
+            },
+            format="json",
+        )
+        second_response = self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Second OTP",
+                "phone_number": "5557015",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second_response.data["detail"][0], "Invalid OTP.")
+
+    def test_admin_can_create_patient_account_from_enrollment_without_registration_otp(self):
         admin_user = User.objects.create_user(
-            email='admin@example.com',
-            password='StrongPass123!',
+            email="admin@example.com",
+            password="StrongPass123!",
             role=RoleChoices.ADMIN,
             is_staff=True,
         )
-        organization = Organization.objects.create(name='Org One')
+        organization = Organization.objects.create(name="Org One")
         enrollment = PatientEnrollment.objects.create(
             organization=organization,
-            first_name='Ali',
-            last_name='Test',
+            first_name="Ali",
+            last_name="Test",
             birth_date=date(2000, 1, 1),
             gender=GenderChoices.MALE,
             hearing_disability_level=HearingDisabilityLevelChoices.MODERATE,
@@ -51,75 +327,174 @@ class AuthAndPatientFlowTests(APITestCase):
         self.client.force_authenticate(admin_user)
 
         response = self.client.post(
-            reverse('patient-enrollment-create-account', kwargs={'pk': enrollment.pk}),
+            reverse("patient-enrollment-create-account", kwargs={"pk": enrollment.pk}),
             {
-                'email': 'linked@example.com',
-                'password': 'StrongPass123!',
-                'record_access_pin': '1234',
+                "email": "linked@example.com",
+                "password": "StrongPass123!",
+                "record_access_pin": "1234",
             },
-            format='json',
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         enrollment.refresh_from_db()
         self.assertTrue(enrollment.is_account_created)
-        self.assertIsNotNone(enrollment.patient_profile)
-        self.assertTrue(enrollment.patient_profile.qr_is_active)
 
-    def test_patient_can_login_with_qr_and_pin(self):
+    def test_login_does_not_require_otp(self):
         user = User.objects.create_user(
-            email='qr.patient@example.com',
-            password='StrongPass123!',
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557016",
             role=RoleChoices.PATIENT,
-            is_active=True,
         )
-        profile = PatientProfile.objects.create(
-            user=user,
-            full_name='QR Patient',
-            qr_code_value='qr-login-token',
-            qr_is_active=True,
-        )
-        profile.set_record_access_pin('1234')
-        profile.save(update_fields=['record_access_pin_hash', 'updated_at'])
+        PatientProfile.objects.create(user=user, full_name="Login Patient")
 
         response = self.client.post(
-            reverse('accounts:patient_qr_login'),
+            reverse("accounts:login"),
             {
-                'qr_code_value': 'qr-login-token',
-                'pin': '1234',
+                "phone_number": "5557016",
+                "password": "StrongPass123!",
             },
-            format='json',
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
-        self.assertEqual(response.data['user']['email'], user.email)
+        self.assertIn("access", response.data)
 
-    def test_patient_qr_login_rejects_invalid_pin(self):
+    def test_login_by_email_still_works(self):
         user = User.objects.create_user(
-            email='qr.invalid@example.com',
-            password='StrongPass123!',
+            email="login.patient@example.com",
+            password="StrongPass123!",
+            phone_number="5557017",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=user, full_name="Login Patient")
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "email": "login.patient@example.com",
+                "password": "StrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["phone_number"], "5557017")
+
+    def test_login_without_identifier_fails(self):
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"][0], "Email or phone number is required."
+        )
+
+    def test_login_wrong_password_fails(self):
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557018",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=user, full_name="Wrong Password Login")
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "phone_number": "5557018",
+                "password": "WrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Invalid credentials.")
+
+    def test_pharmacist_register_and_login_compatibility(self):
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "email": "pharmacist.register@example.com",
+                "password": "StrongPass123!",
+                "full_name": "Register Pharmacist",
+                "phone_number": "5557019",
+                "license_number": "LIC-7019",
+                "pharmacy_name": "Register Pharmacy",
+                "pharmacy_address": "Damascus",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        login_response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "email": "pharmacist.register@example.com",
+                "password": "StrongPass123!",
+            },
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(login_response.data["profile"]["is_approved"])
+
+    def test_patient_qr_login_compatibility(self):
+        user = User.objects.create_user(
+            email="qr.patient@example.com",
+            password="StrongPass123!",
             role=RoleChoices.PATIENT,
             is_active=True,
         )
         profile = PatientProfile.objects.create(
             user=user,
-            full_name='QR Invalid',
-            qr_code_value='qr-invalid-token',
+            full_name="QR Patient",
+            qr_code_value="qr-login-token",
             qr_is_active=True,
         )
-        profile.set_record_access_pin('1234')
-        profile.save(update_fields=['record_access_pin_hash', 'updated_at'])
+        profile.set_record_access_pin("1234")
+        profile.save(update_fields=["record_access_pin_hash", "updated_at"])
 
         response = self.client.post(
-            reverse('accounts:patient_qr_login'),
+            reverse("accounts:patient_qr_login"),
             {
-                'qr_code_value': 'qr-invalid-token',
-                'pin': '9999',
+                "qr_code_value": "qr-login-token",
+                "pin": "1234",
             },
-            format='json',
+            format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['detail'][0], 'Invalid QR code or PIN.')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+
+    def test_logout_and_change_password_still_work(self):
+        user = User.objects.create_user(
+            email="change.password@example.com",
+            password="StrongPass123!",
+            phone_number="5557020",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=user, full_name="Password Patient")
+        refresh = RefreshToken.for_user(user)
+        self.client.force_authenticate(user)
+
+        change_response = self.client.post(
+            reverse("accounts:change_password"),
+            {
+                "current_password": "StrongPass123!",
+                "new_password": "NewStrongPass123!",
+                "confirm_password": "NewStrongPass123!",
+            },
+            format="json",
+        )
+        logout_response = self.client.post(
+            reverse("accounts:logout"),
+            {"refresh": str(refresh)},
+            format="json",
+        )
+
+        self.assertEqual(change_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(logout_response.status_code, status.HTTP_200_OK)

@@ -18,12 +18,12 @@ class PatientProfile(TimeStampedModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='patient_profile',
+        related_name="patient_profile",
     )
     organization = models.ForeignKey(
         Organization,
         on_delete=models.SET_NULL,
-        related_name='patients',
+        related_name="patients",
         null=True,
         blank=True,
     )
@@ -47,23 +47,23 @@ class PatientProfile(TimeStampedModel):
     record_access_pin_hash = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
-        ordering = ('full_name',)
+        ordering = ("full_name",)
         indexes = [
-            models.Index(fields=['organization']),
-            models.Index(fields=['full_name']),
-            models.Index(fields=['qr_is_active']),
+            models.Index(fields=["organization"]),
+            models.Index(fields=["full_name"]),
+            models.Index(fields=["qr_is_active"]),
         ]
 
     @property
     def enrollment(self):
-        return getattr(self, 'enrollment_record', None)
+        return getattr(self, "enrollment_record", None)
 
     def set_record_access_pin(self, pin):
         self.record_access_pin_hash = hash_pin(pin)
 
     def clean(self):
         if self.user_id and self.user.role != RoleChoices.PATIENT:
-            raise ValidationError({'user': 'Patient profile requires a patient user.'})
+            raise ValidationError({"user": "Patient profile requires a patient user."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -77,12 +77,12 @@ class PatientEnrollment(TimeStampedModel):
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
-        related_name='enrollments',
+        related_name="enrollments",
     )
     patient_profile = models.OneToOneField(
         PatientProfile,
         on_delete=models.SET_NULL,
-        related_name='enrollment_record',
+        related_name="enrollment_record",
         null=True,
         blank=True,
     )
@@ -105,22 +105,24 @@ class PatientEnrollment(TimeStampedModel):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        related_name='created_patient_enrollments',
+        related_name="created_patient_enrollments",
         null=True,
         blank=True,
     )
 
     class Meta:
-        ordering = ('-created_at',)
+        ordering = ("-created_at",)
         indexes = [
-            models.Index(fields=['organization', 'last_name', 'birth_date']),
-            models.Index(fields=['phone_number']),
-            models.Index(fields=['is_account_created']),
+            models.Index(fields=["organization", "last_name", "birth_date"]),
+            models.Index(fields=["phone_number"]),
+            models.Index(fields=["is_account_created"]),
         ]
 
     @property
     def full_name(self):
-        return ' '.join(part for part in [self.first_name, self.last_name] if part).strip()
+        return " ".join(
+            part for part in [self.first_name, self.last_name] if part
+        ).strip()
 
     def clean(self):
         duplicate_queryset = PatientEnrollment.objects.filter(
@@ -138,8 +140,8 @@ class PatientEnrollment(TimeStampedModel):
         if duplicate_queryset.exists():
             raise ValidationError(
                 {
-                    'non_field_errors': (
-                        'A very similar enrollment already exists for this organization.'
+                    "non_field_errors": (
+                        "A very similar enrollment already exists for this organization."
                     )
                 }
             )
@@ -151,14 +153,14 @@ class PatientEnrollment(TimeStampedModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.full_name} ({self.organization.name})'
+        return f"{self.full_name} ({self.organization.name})"
 
 
 class PatientMedicalInfo(TimeStampedModel):
     patient = models.OneToOneField(
         PatientProfile,
         on_delete=models.CASCADE,
-        related_name='medical_info',
+        related_name="medical_info",
     )
     chronic_conditions = models.TextField(blank=True)
     allergies = models.TextField(blank=True)
@@ -167,28 +169,132 @@ class PatientMedicalInfo(TimeStampedModel):
     notes = models.TextField(blank=True)
 
     class Meta:
-        verbose_name = 'Patient medical info'
-        verbose_name_plural = 'Patient medical info'
+        verbose_name = "Patient medical info"
+        verbose_name_plural = "Patient medical info"
 
     def __str__(self):
-        return f'Medical Info - {self.patient.full_name}'
+        return f"Medical Info - {self.patient.full_name}"
 
 
-class PatientSession(TimeStampedModel):
+class PatientSettings(TimeStampedModel):
+    patient = models.OneToOneField(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name="settings",
+    )
+    notifications_enabled = models.BooleanField(default=True)
+    prescription_reminders = models.BooleanField(default=True)
+    dark_mode = models.BooleanField(default=False)
+    use_biometrics = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Patient settings"
+        verbose_name_plural = "Patient settings"
+
+    def __str__(self):
+        return f"Settings - {self.patient.full_name}"
+
+
+class PatientLoginQR(TimeStampedModel):
     patient = models.ForeignKey(
         PatientProfile,
         on_delete=models.CASCADE,
-        related_name='sessions',
+        related_name="login_qr_tokens",
+    )
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    is_active = models.BooleanField(default=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="created_patient_login_qrs",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["patient", "is_active"]),
+            models.Index(fields=["is_active", "revoked_at"]),
+        ]
+        verbose_name = "Patient login QR"
+        verbose_name_plural = "Patient login QRs"
+
+    def revoke(self):
+        self.is_active = False
+        self.revoked_at = timezone.now()
+        self.save(update_fields=["is_active", "revoked_at", "updated_at"])
+
+    def __str__(self):
+        status = "active" if self.is_active else "revoked"
+        return f"Login QR for {self.patient.full_name} ({status})"
+
+
+class PatientSessionQR(TimeStampedModel):
+    patient = models.ForeignKey(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name="session_qr_tokens",
+    )
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["patient", "used_at", "revoked_at"]),
+            models.Index(fields=["expires_at"]),
+            models.Index(fields=["used_at"]),
+            models.Index(fields=["revoked_at"]),
+        ]
+        verbose_name = "Patient session QR"
+        verbose_name_plural = "Patient session QRs"
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    def mark_used(self):
+        self.used_at = timezone.now()
+        self.save(update_fields=["used_at", "updated_at"])
+
+    def revoke(self):
+        self.revoked_at = timezone.now()
+        self.save(update_fields=["revoked_at", "updated_at"])
+
+    def __str__(self):
+        return f"Session QR for {self.patient.full_name}"
+
+
+class PatientSession(TimeStampedModel):
+    STATUS_ACTIVE = "active"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = (
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_EXPIRED, "Expired"),
+    )
+
+    patient = models.ForeignKey(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name="sessions",
     )
     pharmacist = models.ForeignKey(
-        'pharmacies.PharmacistProfile',
+        "pharmacies.PharmacistProfile",
         on_delete=models.CASCADE,
-        related_name='patient_sessions',
+        related_name="patient_sessions",
     )
     pharmacy = models.ForeignKey(
-        'pharmacies.Pharmacy',
+        "pharmacies.Pharmacy",
         on_delete=models.CASCADE,
-        related_name='patient_sessions',
+        related_name="patient_sessions",
     )
     access_type = models.CharField(
         max_length=20,
@@ -196,23 +302,32 @@ class PatientSession(TimeStampedModel):
         default=PatientSessionAccessTypeChoices.QR_SCAN,
     )
     qr_code_value_snapshot = models.CharField(max_length=128, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_ACTIVE,
+    )
     started_at = models.DateTimeField(default=timezone.now)
     ended_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ('-started_at', '-created_at')
+        ordering = ("-started_at", "-created_at")
         indexes = [
-            models.Index(fields=['patient', '-started_at']),
-            models.Index(fields=['pharmacist', '-started_at']),
-            models.Index(fields=['pharmacy', '-started_at']),
-            models.Index(fields=['access_type']),
+            models.Index(fields=["patient", "-started_at"]),
+            models.Index(fields=["pharmacist", "-started_at"]),
+            models.Index(fields=["pharmacy", "-started_at"]),
+            models.Index(fields=["access_type"]),
+            models.Index(fields=["status", "expires_at"]),
         ]
 
     def clean(self):
         if self.pharmacist_id and self.pharmacy_id:
             if self.pharmacist.pharmacy_id != self.pharmacy_id:
                 raise ValidationError(
-                    {'pharmacy': 'Patient session pharmacy must match pharmacist pharmacy.'}
+                    {
+                        "pharmacy": "Patient session pharmacy must match pharmacist pharmacy."
+                    }
                 )
 
     def save(self, *args, **kwargs):
@@ -220,4 +335,4 @@ class PatientSession(TimeStampedModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'Session #{self.pk} - {self.patient.full_name}'
+        return f"Session #{self.pk} - {self.patient.full_name}"

@@ -13,19 +13,23 @@ from .models import PharmacistProfile, Pharmacy
 from .serializers import (
     PharmacistMeUpdateSerializer,
     PharmacistProfileSerializer,
+    PharmacyCompatSerializer,
     PharmacySerializer,
 )
 
 
 class PharmacyViewSet(viewsets.ModelViewSet):
     serializer_class = PharmacySerializer
-    queryset = Pharmacy.objects.select_related('organization', 'owner_user')
-    http_method_names = ['get', 'post', 'head', 'options']
+    queryset = Pharmacy.objects.select_related("organization", "owner_user")
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
-        if self.request.user.is_authenticated and self.request.user.role == RoleChoices.ADMIN:
+        if (
+            self.request.user.is_authenticated
+            and self.request.user.role == RoleChoices.ADMIN
+        ):
             permission_classes = [IsAuthenticated, CanManagePharmacists]
-        elif self.action == 'create':
+        elif self.action == "create":
             permission_classes = [IsAuthenticated, CanManagePharmacists]
         else:
             permission_classes = [IsAuthenticated, IsPharmacistRole]
@@ -34,16 +38,16 @@ class PharmacyViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.request.user.role == RoleChoices.PHARMACIST:
-            pharmacist_profile = getattr(self.request.user, 'pharmacist_profile', None)
+            pharmacist_profile = getattr(self.request.user, "pharmacist_profile", None)
             if pharmacist_profile is None:
                 return queryset.none()
             return queryset.filter(pk=pharmacist_profile.pharmacy_id)
-        staff_profile = getattr(self.request.user, 'organization_staff_profile', None)
+        staff_profile = getattr(self.request.user, "organization_staff_profile", None)
         if self.request.user.is_superuser or staff_profile is None:
             return queryset
         return queryset.filter(organization=staff_profile.organization)
 
-    @action(detail=False, methods=['get'], url_path='contracted')
+    @action(detail=False, methods=["get"], url_path="contracted")
     def contracted(self, request):
         queryset = self.filter_queryset(
             self.get_queryset().filter(is_contracted_with_organization=True)
@@ -55,8 +59,8 @@ class PharmacyViewSet(viewsets.ModelViewSet):
 class PharmacistProfileViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):
     serializer_class = PharmacistProfileSerializer
     permission_classes = [IsAuthenticated, IsPharmacistRole]
-    queryset = PharmacistProfile.objects.select_related('user', 'pharmacy')
-    http_method_names = ['get', 'patch', 'head', 'options']
+    queryset = PharmacistProfile.objects.select_related("user", "pharmacy")
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
         return self.request.user.pharmacist_profile
@@ -75,3 +79,25 @@ class PharmacistProfileViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(PharmacistProfileSerializer(profile).data)
+
+
+class PharmacistPharmacyViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsPharmacistRole]
+
+    def _get_pharmacy(self):
+        return self.request.user.pharmacist_profile.pharmacy
+
+    def retrieve(self, request):
+        serializer = PharmacyCompatSerializer(self._get_pharmacy())
+        return Response(serializer.data)
+
+    def partial_update(self, request):
+        pharmacy = self._get_pharmacy()
+        serializer = PharmacyCompatSerializer(
+            pharmacy,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(PharmacyCompatSerializer(pharmacy).data)

@@ -4,7 +4,7 @@ from common.choices import RoleChoices
 
 
 def get_staff_profile(user):
-    return getattr(user, 'organization_staff_profile', None)
+    return getattr(user, "organization_staff_profile", None)
 
 
 def is_admin_role(user):
@@ -16,11 +16,7 @@ def is_admin_role(user):
 
 
 def is_pharmacist_role(user):
-    return bool(
-        user
-        and user.is_authenticated
-        and user.role == RoleChoices.PHARMACIST
-    )
+    return bool(user and user.is_authenticated and user.role == RoleChoices.PHARMACIST)
 
 
 def is_patient_role(user):
@@ -29,7 +25,7 @@ def is_patient_role(user):
 
 def get_staff_organization(user):
     profile = get_staff_profile(user)
-    return getattr(profile, 'organization', None)
+    return getattr(profile, "organization", None)
 
 
 def has_patient_management_access(user):
@@ -47,7 +43,7 @@ def has_pharmacist_management_access(user):
 
 
 def get_pharmacist_profile(user):
-    return getattr(user, 'pharmacist_profile', None)
+    return getattr(user, "pharmacist_profile", None)
 
 
 def is_approved_pharmacist(user):
@@ -103,5 +99,7 @@ class IsAdminOrPharmacistRole(BasePermission):
 
 
 class IsApprovedPharmacistRole(BasePermission):
+    message = "Pharmacist account is not approved."
+
     def has_permission(self, request, view):
         return is_approved_pharmacist(request.user)
