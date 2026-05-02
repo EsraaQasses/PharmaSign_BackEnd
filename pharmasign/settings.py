@@ -188,7 +188,7 @@ PHARMASIGN_ALLOWED_IMAGE_EXTENSIONS = env_to_list(
 PHARMASIGN_ALLOWED_AUDIO_EXTENSIONS = env_to_list(
     config(
         "PHARMASIGN_ALLOWED_AUDIO_EXTENSIONS",
-        default=".mp3,.wav,.m4a,.ogg",
+        default=".mp3,.mpeg,.wav,.wave,.ogg,.oga,.opus,.webm,.m4a,.mp4,.aac,.flac,.amr,.3gp,.3gpp",
     )
 )
 PHARMASIGN_ALLOWED_VIDEO_EXTENSIONS = env_to_list(
@@ -206,7 +206,12 @@ PHARMASIGN_ALLOWED_IMAGE_CONTENT_TYPES = env_to_list(
 PHARMASIGN_ALLOWED_AUDIO_CONTENT_TYPES = env_to_list(
     config(
         "PHARMASIGN_ALLOWED_AUDIO_CONTENT_TYPES",
-        default="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/ogg",
+        default=(
+            "audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,"
+            "audio/vnd.wave,audio/ogg,audio/opus,audio/webm,audio/mp4,"
+            "audio/x-m4a,audio/aac,audio/flac,audio/x-flac,audio/amr,"
+            "audio/3gpp,video/3gpp,application/ogg,application/octet-stream"
+        ),
     )
 )
 PHARMASIGN_ALLOWED_VIDEO_CONTENT_TYPES = env_to_list(

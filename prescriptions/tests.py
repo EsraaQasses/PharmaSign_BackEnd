@@ -283,7 +283,9 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             )
         return prescription
 
-    def assert_safe_prescription_nested_shapes(self, payload):
+    def assert_safe_prescription_nested_shapes(
+        self, payload, *, include_transcription=False
+    ):
         self.assertEqual(
             set(payload["patient"].keys()),
             {"id", "full_name", "phone_number"},
@@ -298,37 +300,54 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
         self.assertIn("items", payload)
         if payload["items"]:
-            self.assertEqual(
-                set(payload["items"][0].keys()),
-                {
-                    "id",
-                    "medicine_name",
-                    "dosage",
-                    "frequency",
-                    "duration",
-                    "instructions_text",
-                    "sign_status",
-                },
-            )
+            expected_item_fields = {
+                "id",
+                "medicine_name",
+                "dosage",
+                "frequency",
+                "duration",
+                "instructions_text",
+                "sign_status",
+            }
+            if include_transcription:
+                expected_item_fields.update(
+                    {
+                        "instructions_audio",
+                        "transcription_status",
+                        "transcription_provider",
+                        "transcription_completed_at",
+                        "transcription_error_message",
+                        "instructions_transcript_raw",
+                        "instructions_transcript_edited",
+                        "is_transcript_approved",
+                    }
+                )
+            self.assertEqual(set(payload["items"][0].keys()), expected_item_fields)
             blocked_item_fields = {
                 "prescription",
                 "medicine_image",
                 "price",
                 "quantity",
-                "instructions_audio",
-                "transcription_status",
-                "transcription_provider",
                 "transcription_requested_at",
-                "transcription_completed_at",
-                "transcription_error_message",
-                "instructions_transcript_raw",
-                "instructions_transcript_edited",
                 "sign_language_video",
                 "supporting_text",
                 "is_confirmed",
                 "created_at",
                 "updated_at",
             }
+            if not include_transcription:
+                blocked_item_fields.update(
+                    {
+                        "instructions_audio",
+                        "transcription_status",
+                        "transcription_provider",
+                        "transcription_completed_at",
+                        "transcription_error_message",
+                        "instructions_transcript_raw",
+                        "instructions_transcript_edited",
+                        "is_transcript_approved",
+                    }
+                )
             self.assertTrue(blocked_item_fields.isdisjoint(payload["items"][0].keys()))
         self.assertNotIn("email", payload["pharmacist"])
         self.assertNotIn("license_number", payload["pharmacist"])
@@ -362,7 +381,9 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             {"id", "full_name", "phone_number"},
         )
         self.assertNotIn("qr_code_value", response.data["patient"])
-        self.assert_safe_prescription_nested_shapes(response.data)
+        self.assert_safe_prescription_nested_shapes(
+            response.data, include_transcription=True
+        )
         self.assertEqual(len(response.data["items"]), 1)
         self.assertEqual(
             response.data["items"][0]["sign_status"], SignStatusChoices.PENDING
@@ -497,6 +518,24 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
     def test_pharmacist_can_retrieve_own_prescription(self):
         prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "Approved instruction"
+        item.instructions_transcript_raw = "Raw transcript"
+        item.instructions_transcript_edited = "Approved instruction"
+        item.transcription_status = TranscriptionStatusChoices.COMPLETED
+        item.transcription_provider = "gemini"
+        item.transcription_completed_at = timezone.now()
+        item.save(
+            update_fields=[
+                "instructions_text",
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "transcription_status",
+                "transcription_provider",
+                "transcription_completed_at",
+                "updated_at",
+            ]
+        )
 
         response = self.client.get(
             reverse(
@@ -507,7 +546,17 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], prescription.id)
-        self.assert_safe_prescription_nested_shapes(response.data)
+        self.assert_safe_prescription_nested_shapes(
+            response.data, include_transcription=True
+        )
+        item_payload = response.data["items"][0]
+        self.assertEqual(item_payload["instructions_transcript_raw"], "Raw transcript")
+        self.assertEqual(
+            item_payload["instructions_transcript_edited"], "Approved instruction"
+        )
+        self.assertEqual(item_payload["transcription_status"], "completed")
+        self.assertEqual(item_payload["transcription_provider"], "gemini")
+        self.assertTrue(item_payload["is_transcript_approved"])
 
     def test_pharmacist_cannot_retrieve_another_pharmacists_prescription(self):
         prescription = self._create_prescription(pharmacist=self.other_pharmacist)
@@ -726,9 +775,11 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(len(response.data["results"]), 1)
         self.assert_safe_prescription_nested_shapes(response.data["results"][0])
 
-    def build_audio_upload(self, *, content_type="audio/mpeg", size=128):
+    def build_audio_upload(
+        self, *, filename="instructions.mp3", content_type="audio/mpeg", size=128
+    ):
         return SimpleUploadedFile(
-            "instructions.mp3",
+            filename,
             b"a" * size,
             content_type=content_type,
         )
@@ -744,6 +795,17 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
+        item.instructions_text = "Previously approved text"
+        item.instructions_transcript_raw = "Old raw transcript"
+        item.instructions_transcript_edited = "Previously approved text"
+        item.save(
+            update_fields=[
+                "instructions_text",
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "updated_at",
+            ]
+        )
 
         response = self.client.post(
             reverse(
@@ -755,12 +817,16 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["detail"], "Audio transcribed successfully.")
-        item.refresh_from_db()
+        self.assertEqual(response.data["item_id"], item.id)
         self.assertEqual(
-            item.instructions_text,
-            "Take one tablet after food three times a day",
+            response.data["message"],
+            (
+                "Audio transcribed successfully. Transcript requires pharmacist "
+                "approval."
+            ),
         )
+        item.refresh_from_db()
+        self.assertEqual(item.instructions_text, "")
         self.assertEqual(
             item.instructions_transcript_raw,
             "Take one tablet after food three times a day",
@@ -774,24 +840,71 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             TranscriptionStatusChoices.COMPLETED,
         )
         self.assertEqual(item.transcription_provider, "gemini")
-        self.assertFalse(item.instructions_audio)
+        self.assertTrue(item.instructions_audio)
+        self.assertEqual(response.data["instructions_text"], "")
+        self.assertFalse(response.data["is_transcript_approved"])
         self.assertEqual(
-            set(response.data["item"].keys()),
-            {
-                "id",
-                "medicine_name",
-                "dosage",
-                "frequency",
-                "duration",
-                "instructions_text",
-                "transcription_status",
-                "transcription_provider",
-                "instructions_transcript_raw",
-                "instructions_transcript_edited",
-                "sign_status",
-            },
+            response.data["instructions_transcript_raw"],
+            "Take one tablet after food three times a day",
         )
         mock_transcribe.assert_called_once()
+
+    def test_approved_pharmacist_can_approve_transcript_for_own_draft_item(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_transcript_raw = "Raw Gemini text"
+        item.instructions_transcript_edited = "Raw Gemini text"
+        item.transcription_status = TranscriptionStatusChoices.COMPLETED
+        item.save(
+            update_fields=[
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "transcription_status",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-approve-transcript",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"approved_instruction_text": "Edited approved text"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["item_id"], item.id)
+        self.assertEqual(
+            response.data["message"],
+            "Transcript approved successfully.",
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.instructions_transcript_raw, "Raw Gemini text")
+        self.assertEqual(item.instructions_transcript_edited, "Edited approved text")
+        self.assertEqual(item.instructions_text, "Edited approved text")
+        self.assertEqual(item.transcription_status, TranscriptionStatusChoices.COMPLETED)
+        self.assertEqual(
+            response.data["transcription_status"],
+            TranscriptionStatusChoices.COMPLETED,
+        )
+        self.assertTrue(response.data["is_transcript_approved"])
+
+    def test_approve_transcript_requires_non_blank_text(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-approve-transcript",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"approved_instruction_text": ""},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("approved_instruction_text", response.data)
 
     def test_transcribe_audio_requires_audio_file(self):
         prescription = self._create_prescription()
@@ -809,7 +922,54 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("audio", response.data)
 
-    def test_transcribe_audio_rejects_unsupported_audio_type(self):
+    @patch("prescriptions.views.transcribe_audio_file")
+    def test_transcribe_audio_accepts_common_audio_formats(self, mock_transcribe):
+        mock_transcribe.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "transcript": "Audio transcript",
+        }
+        cases = [
+            ("instructions.m4a", "audio/x-m4a"),
+            ("instructions.ogg", "audio/ogg"),
+            ("instructions.wav", "audio/wav"),
+            ("instructions.mp3", "audio/mpeg"),
+        ]
+
+        for filename, content_type in cases:
+            with self.subTest(filename=filename, content_type=content_type):
+                prescription = self._create_prescription()
+                item = prescription.items.first()
+                response = self.client.post(
+                    reverse(
+                        "pharmacist-prescription-item-transcribe-audio",
+                        kwargs={
+                            "prescription_id": prescription.id,
+                            "item_id": item.id,
+                        },
+                    ),
+                    {
+                        "audio": self.build_audio_upload(
+                            filename=filename,
+                            content_type=content_type,
+                        )
+                    },
+                    format="multipart",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(mock_transcribe.call_count, len(cases))
+
+    @patch("prescriptions.views.transcribe_audio_file")
+    def test_transcribe_audio_accepts_octet_stream_with_audio_extension(
+        self, mock_transcribe
+    ):
+        mock_transcribe.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "transcript": "Audio transcript",
+        }
         prescription = self._create_prescription()
         item = prescription.items.first()
 
@@ -818,12 +978,59 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "pharmacist-prescription-item-transcribe-audio",
                 kwargs={"prescription_id": prescription.id, "item_id": item.id},
             ),
-            {"audio": self.build_audio_upload(content_type="application/octet-stream")},
+            {
+                "audio": self.build_audio_upload(
+                    filename="instructions.mp3",
+                    content_type="application/octet-stream",
+                )
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transcribe.assert_called_once()
+
+    def test_transcribe_audio_rejects_unsupported_audio_extension(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-transcribe-audio",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {
+                "audio": self.build_audio_upload(
+                    filename="instructions.txt",
+                    content_type="application/octet-stream",
+                )
+            },
             format="multipart",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["audio"][0], "Unsupported audio file type.")
+        self.assertIn("Allowed formats include", response.data["audio"][0])
+
+    def test_transcribe_audio_rejects_image_extension(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-transcribe-audio",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {
+                "audio": self.build_audio_upload(
+                    filename="instructions.jpg",
+                    content_type="image/jpeg",
+                )
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Allowed formats include", response.data["audio"][0])
 
     @override_settings(MAX_AUDIO_UPLOAD_SIZE_MB=1)
     def test_transcribe_audio_rejects_large_audio_file(self):
@@ -922,7 +1129,16 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         prescription = self._create_prescription()
         item = prescription.items.first()
         item.instructions_text = "Existing text"
-        item.save(update_fields=["instructions_text", "updated_at"])
+        item.instructions_transcript_raw = "Old raw"
+        item.instructions_transcript_edited = "Existing text"
+        item.save(
+            update_fields=[
+                "instructions_text",
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "updated_at",
+            ]
+        )
 
         response = self.client.post(
             reverse(
@@ -939,7 +1155,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "Audio transcription failed. Please try again.",
         )
         item.refresh_from_db()
-        self.assertEqual(item.instructions_text, "Existing text")
+        self.assertEqual(item.instructions_text, "")
+        self.assertEqual(item.instructions_transcript_raw, "")
+        self.assertEqual(item.instructions_transcript_edited, "")
+        self.assertTrue(item.instructions_audio)
         self.assertEqual(item.transcription_status, TranscriptionStatusChoices.FAILED)
         self.assertEqual(item.transcription_provider, "gemini")
         self.assertEqual(

@@ -34,6 +34,9 @@ pharmacist_prescription_item_detail = PharmacistPrescriptionViewSet.as_view(
 pharmacist_prescription_item_transcribe_audio = PharmacistPrescriptionViewSet.as_view(
     {"post": "transcribe_audio"}
 )
+pharmacist_prescription_item_approve_transcript = PharmacistPrescriptionViewSet.as_view(
+    {"post": "approve_transcript"}
+)
 pharmacist_prescription_submit = PharmacistPrescriptionViewSet.as_view(
     {"post": "submit"}
 )
@@ -67,6 +70,14 @@ urlpatterns = [
         ),
         pharmacist_prescription_item_transcribe_audio,
         name="pharmacist-prescription-item-transcribe-audio",
+    ),
+    path(
+        (
+            "pharmacist/prescriptions/<int:prescription_id>/items/"
+            "<int:item_id>/approve-transcript/"
+        ),
+        pharmacist_prescription_item_approve_transcript,
+        name="pharmacist-prescription-item-approve-transcript",
     ),
     path(
         "pharmacist/prescriptions/<int:prescription_id>/submit/",

@@ -935,6 +935,7 @@ POST /api/pharmacist/prescriptions/{prescription_id}/items/
 PATCH /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
 DELETE /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
 POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/approve-transcript/
 POST /api/pharmacist/prescriptions/{prescription_id}/submit/
 ```
 
@@ -965,6 +966,192 @@ Important:
 - The session must belong to the authenticated pharmacist.
 - The `patient_id` must match the session patient.
 - Submitted prescriptions are visible to the patient.
+
+### Audio Instructions / Gemini Transcription Flow
+
+The frontend audio instruction flow is:
+
+1. The pharmacist records the medication instruction audio.
+2. The frontend uploads the audio file to Django.
+3. Django validates the user, item, prescription draft state, and audio file.
+4. Django sends the audio file to Gemini.
+5. Django stores Gemini output in `instructions_transcript_raw`.
+6. Django stores the same text in `instructions_transcript_edited` as the editable Verify Text draft.
+7. Django does not fill `instructions_text` after `transcribe-audio`.
+8. The pharmacist reviews and edits `instructions_transcript_edited` in the Verify Text screen.
+9. The frontend sends the final reviewed text to `approve-transcript`.
+10. Django stores the final patient-facing text in `instructions_text`.
+11. `is_transcript_approved` becomes `true` only after `approve-transcript`, because it is `true` only when `instructions_text` is non-empty.
+
+#### Transcribe Item Audio
+
+```text
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/
+Authorization: Bearer <access_token>
+Body: multipart/form-data
+```
+
+Multipart field:
+
+```text
+audio = audio file
+```
+
+Frontend note:
+
+- Do not manually set `Content-Type` when sending `FormData` from React Native, `fetch`, or axios. Let the client set the multipart boundary.
+
+Accepted audio extensions:
+
+```text
+.3gp, .3gpp, .aac, .amr, .flac, .m4a, .mp3, .mp4, .mpeg, .oga, .ogg, .opus, .wav, .wave, .webm
+```
+
+Accepted audio MIME types:
+
+```text
+audio/mpeg, audio/mp3, audio/wav, audio/x-wav, audio/wave, audio/vnd.wave,
+audio/ogg, audio/opus, audio/webm, audio/mp4, audio/x-m4a, audio/aac,
+audio/flac, audio/x-flac, audio/amr, audio/3gpp, video/3gpp,
+application/ogg, application/octet-stream
+```
+
+`application/octet-stream` is accepted only when the file extension is an allowed audio extension. Non-audio extensions such as `.txt`, `.jpg`, `.exe`, or `.pdf` must be rejected.
+
+Success response:
+
+```json
+{
+  "item_id": 4,
+  "transcription_status": "completed",
+  "instructions_transcript_raw": "خدي حبة كل 8 ساعات بعد الأكل لمدة خمسة أيام",
+  "instructions_transcript_edited": "خدي حبة كل 8 ساعات بعد الأكل لمدة خمسة أيام",
+  "instructions_text": "",
+  "is_transcript_approved": false,
+  "message": "Audio transcribed successfully. Transcript requires pharmacist approval."
+}
+```
+
+Important behavior:
+
+- `instructions_text` remains empty after `transcribe-audio`.
+- Gemini text is not considered final.
+- The frontend must open Verify Text using `instructions_transcript_edited`.
+- Re-recording the same item with a new audio file cancels old approval:
+  - `instructions_text` becomes empty.
+  - `instructions_transcript_raw` is replaced by the new Gemini text on success.
+  - `instructions_transcript_edited` is replaced by the new Gemini text on success.
+  - `is_transcript_approved` becomes `false`.
+- If Gemini/transcription fails after a re-record:
+  - `transcription_status = "failed"`.
+  - `transcription_error_message` contains the provider error.
+  - `instructions_text` remains empty.
+  - `instructions_transcript_raw` remains empty.
+  - `instructions_transcript_edited` remains empty.
+  - `is_transcript_approved = false`.
+
+Common error responses:
+
+| Status | Situation | Response shape |
+| --- | --- | --- |
+| 400 | Missing audio file | `{"audio": ["This field is required."]}` |
+| 400 | Unsupported file type | `{"audio": ["Unsupported audio file type. Allowed formats include mp3, wav, ogg, opus, webm, m4a, mp4, aac, flac, amr, 3gp."]}` |
+| 401 | Missing, invalid, or expired token | `{"detail": "Authentication credentials were not provided."}` or token error |
+| 403 | Pharmacist not allowed or not approved | `{"detail": "Pharmacist account is not approved."}` or permission error |
+| 404 | Prescription or item not found | `{"detail": "Not found."}` |
+| 500/502 | Gemini/transcription provider failure | `{"detail": "Audio transcription failed. Please try again."}` |
+
+#### Approve Item Transcript
+
+```text
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/approve-transcript/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "approved_instruction_text": "خدي حبة كل 12 ساعة بعد الأكل لمدة سبعة أيام"
+}
+```
+
+Success response:
+
+```json
+{
+  "item_id": 4,
+  "transcription_status": "completed",
+  "is_transcript_approved": true,
+  "instructions_transcript_raw": "نص Gemini الأصلي",
+  "instructions_transcript_edited": "خدي حبة كل 12 ساعة بعد الأكل لمدة سبعة أيام",
+  "instructions_text": "خدي حبة كل 12 ساعة بعد الأكل لمدة سبعة أيام",
+  "message": "Transcript approved successfully."
+}
+```
+
+Important behavior:
+
+- `instructions_transcript_raw` remains the original Gemini output.
+- `instructions_transcript_edited` becomes the pharmacist-reviewed text.
+- `instructions_text` becomes the final approved patient-facing instructions.
+- The patient-facing/final instruction text is `instructions_text` only after `approve-transcript`.
+- Empty `approved_instruction_text` must be rejected.
+- `transcription_status` remains `"completed"` after approval. Do not use or expect `"approved"` as a `transcription_status` value.
+
+Common error responses:
+
+| Status | Situation | Response shape |
+| --- | --- | --- |
+| 400 | Empty approved text | `{"approved_instruction_text": ["This field may not be blank."]}` |
+| 401 | Missing, invalid, or expired token | `{"detail": "Authentication credentials were not provided."}` or token error |
+| 403 | Pharmacist not allowed or not approved | `{"detail": "Pharmacist account is not approved."}` or permission error |
+| 404 | Prescription or item not found | `{"detail": "Not found."}` |
+
+#### Pharmacist Prescription Detail Items
+
+```text
+GET /api/pharmacist/prescriptions/{prescription_id}/
+Authorization: Bearer <access_token>
+```
+
+Each item in the response includes transcription fields:
+
+```json
+{
+  "id": 4,
+  "medicine_name": "Paracetamol",
+  "dosage": "500mg",
+  "frequency": "كل 8 ساعات",
+  "duration": "5 أيام",
+  "instructions_audio": "/media/prescriptions/4/audio/file.ogg",
+  "instructions_text": "خدي حبة كل 12 ساعة بعد الأكل لمدة سبعة أيام",
+  "transcription_status": "completed",
+  "transcription_provider": "gemini",
+  "transcription_completed_at": "2026-05-02T23:13:30.851279Z",
+  "transcription_error_message": "",
+  "instructions_transcript_raw": "نص Gemini الخام",
+  "instructions_transcript_edited": "النص المعدل من الصيدلي",
+  "is_transcript_approved": true,
+  "sign_status": "pending"
+}
+```
+
+Field meanings:
+
+- `instructions_audio`: uploaded audio URL or `null`; this must not be treated as an internal filesystem path.
+- `instructions_transcript_raw`: original Gemini transcript.
+- `instructions_transcript_edited`: editable/reviewed working transcript.
+- `instructions_text`: final approved patient-facing instructions.
+- `is_transcript_approved`: read-only boolean; `true` only when `instructions_text` is non-empty.
+- `transcription_status`: existing backend status value. Possible values remain:
+  - `not_requested`
+  - `pending`
+  - `processing`
+  - `completed`
+  - `failed`
+- Do not document or send `"approved"` as a `transcription_status` value.
 
 ### Patient Routes
 
@@ -1069,7 +1256,8 @@ When user logs out:
 | GET/PATCH | `/api/pharmacist/prescriptions/{prescription_id}/` | Bearer | Pharmacist | Retrieve/update draft | Update requires approved pharmacist |
 | POST | `/api/pharmacist/prescriptions/{prescription_id}/items/` | Bearer | Approved pharmacist | Add item | Draft only |
 | PATCH/DELETE | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/` | Bearer | Approved pharmacist | Update/delete item | Draft only |
-| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/` | Bearer | Approved pharmacist | Audio transcription | Draft only |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/` | Bearer | Approved pharmacist | Audio transcription | Draft only; transcript requires approval |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/approve-transcript/` | Bearer | Approved pharmacist | Approve reviewed transcript | Draft only; writes final `instructions_text` |
 | POST | `/api/pharmacist/prescriptions/{prescription_id}/submit/` | Bearer | Approved pharmacist | Submit prescription | Requires at least one item |
 | GET | `/api/patients/me/prescriptions/` | Bearer | Patient | Patient prescription list | Submitted by default |
 | GET | `/api/patients/me/prescriptions/{prescription_id}/` | Bearer | Patient | Patient prescription detail | Own prescriptions only |
@@ -1106,3 +1294,10 @@ When user logs out:
 - Frontend must not use legacy `POST /api/prescriptions/`.
 - Use `/api/pharmacist/prescriptions/` with a valid active `session_id` to create prescriptions.
 - If refresh returns pending/rejected/inactive, clear local tokens immediately.
+- Do not use `instructions_text` immediately after `transcribe-audio`.
+- Use `instructions_transcript_edited` for the Verify Text screen.
+- Use `approve-transcript` before showing `instructions_text` as final.
+- Do not set multipart `Content-Type` manually when using `FormData`; let the client set the boundary.
+- If re-record is triggered, treat any previously approved text as invalid until `approve-transcript` succeeds again.
+- On Android Emulator use `http://10.0.2.2:8000` instead of `http://127.0.0.1:8000`.
+- On a real phone use the laptop LAN IP and run Django with `python manage.py runserver 0.0.0.0:8000`.

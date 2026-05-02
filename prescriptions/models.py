@@ -164,7 +164,9 @@ class PrescriptionItem(TimeStampedModel):
             validate_audio_upload(self.instructions_audio)
             if self.transcription_status == TranscriptionStatusChoices.NOT_REQUESTED:
                 self.transcription_status = TranscriptionStatusChoices.PENDING
-        elif self.transcription_status != TranscriptionStatusChoices.COMPLETED:
+        elif self.transcription_status not in {
+            TranscriptionStatusChoices.COMPLETED,
+        }:
             self.transcription_status = TranscriptionStatusChoices.NOT_REQUESTED
         if self.sign_language_video:
             validate_video_upload(self.sign_language_video)

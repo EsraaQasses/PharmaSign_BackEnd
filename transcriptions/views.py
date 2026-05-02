@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from django.conf import settings
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -13,21 +13,16 @@ from rest_framework.views import APIView
 from common.choices import ApprovalStatusChoices, RoleChoices
 
 from .services import TranscriptionError, transcribe_audio_file
+from .validators import (
+    SUPPORTED_AUDIO_CONTENT_TYPES,
+    UNSUPPORTED_AUDIO_MESSAGE,
+    validate_transcription_audio_upload,
+)
 
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_TEST_AUDIO_CONTENT_TYPES = {
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/webm",
-    "audio/mp4",
-    "audio/m4a",
-    "audio/aac",
-    "audio/ogg",
-}
+SUPPORTED_TEST_AUDIO_CONTENT_TYPES = SUPPORTED_AUDIO_CONTENT_TYPES
 MAX_TEST_AUDIO_UPLOAD_BYTES = 25 * 1024 * 1024
 PENDING_APPROVAL_DETAIL = (
     "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة."
@@ -62,10 +57,12 @@ class TestTranscriptionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        content_type = (getattr(audio, "content_type", "") or "").lower()
-        if content_type not in SUPPORTED_TEST_AUDIO_CONTENT_TYPES:
+        try:
+            validate_transcription_audio_upload(audio)
+        except serializers.ValidationError as exc:
+            detail = exc.detail if isinstance(exc.detail, list) else [exc.detail]
             return Response(
-                {"audio": ["Unsupported audio file type."]},
+                {"audio": detail},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

@@ -15,6 +15,7 @@ from common.choices import (
     PrescriptionAccessTypeChoices,
     PrescriptionStatusChoices,
     RoleChoices,
+    TranscriptionStatusChoices,
 )
 from common.permissions import (
     CanManagePatients,
@@ -26,6 +27,7 @@ from common.permissions import (
 
 from .models import Prescription, PrescriptionItem
 from .serializers import (
+    ApproveTranscriptSerializer,
     PharmacistPrescriptionCreateSerializer,
     PharmacistPrescriptionItemAudioTranscriptionSerializer,
     PharmacistPrescriptionItemInputSerializer,
@@ -41,7 +43,6 @@ from .serializers import (
     PrescriptionItemTranscriptionRequestSerializer,
     PrescriptionItemUpdateSerializer,
     PrescriptionSerializer,
-    TranscribedPrescriptionItemSerializer,
 )
 from .services import log_prescription_access, transcribe_prescription_item
 from transcriptions.exceptions import AudioTranscriptionError
@@ -368,16 +369,35 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
 
         now = timezone.now()
-        PrescriptionItem.objects.filter(pk=item.pk).update(
-            transcription_status="processing",
-            transcription_requested_at=now,
-            transcription_error_message="",
-            updated_at=now,
+        audio_file = serializer.validated_data["audio"]
+        item.instructions_audio.save(
+            getattr(audio_file, "name", "") or "instructions.audio",
+            audio_file,
+            save=False,
+        )
+        item.transcription_status = TranscriptionStatusChoices.PROCESSING
+        item.transcription_requested_at = now
+        item.transcription_error_message = ""
+        item.instructions_text = ""
+        item.instructions_transcript_raw = ""
+        item.instructions_transcript_edited = ""
+        item.save(
+            update_fields=[
+                "instructions_audio",
+                "transcription_status",
+                "transcription_requested_at",
+                "transcription_error_message",
+                "instructions_text",
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "updated_at",
+            ]
         )
         item.refresh_from_db()
+        if hasattr(audio_file, "seek"):
+            audio_file.seek(0)
 
         temp_path = None
-        audio_file = serializer.validated_data["audio"]
         try:
             suffix = (
                 getattr(audio_file, "name", "")
@@ -398,7 +418,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             provider_error = exc.safe_message
             failed_at = timezone.now()
             PrescriptionItem.objects.filter(pk=item.pk).update(
-                transcription_status="failed",
+                transcription_status=TranscriptionStatusChoices.FAILED,
                 transcription_provider="gemini",
                 transcription_completed_at=failed_at,
                 transcription_error_message=provider_error,
@@ -415,10 +435,9 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
 
         completed_at = timezone.now()
         PrescriptionItem.objects.filter(pk=item.pk).update(
-            instructions_text=transcript,
             instructions_transcript_raw=transcript,
             instructions_transcript_edited=transcript,
-            transcription_status="completed",
+            transcription_status=TranscriptionStatusChoices.COMPLETED,
             transcription_provider="gemini",
             transcription_completed_at=completed_at,
             transcription_error_message="",
@@ -432,8 +451,59 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         )
         return Response(
             {
-                "detail": "Audio transcribed successfully.",
-                "item": TranscribedPrescriptionItemSerializer(item).data,
+                "item_id": item.id,
+                "transcription_status": item.transcription_status,
+                "instructions_transcript_raw": item.instructions_transcript_raw,
+                "instructions_transcript_edited": item.instructions_transcript_edited,
+                "instructions_text": item.instructions_text,
+                "is_transcript_approved": bool(item.instructions_text.strip()),
+                "message": (
+                    "Audio transcribed successfully. Transcript requires pharmacist "
+                    "approval."
+                ),
+            }
+        )
+
+    def approve_transcript(self, request, prescription_id, item_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        ensure_draft_prescription(prescription)
+        try:
+            item = prescription.items.get(pk=item_id)
+        except PrescriptionItem.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ApproveTranscriptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        approved_text = serializer.validated_data["approved_instruction_text"]
+        item.instructions_transcript_edited = approved_text
+        item.instructions_text = approved_text
+        item.transcription_status = TranscriptionStatusChoices.COMPLETED
+        item.save(
+            update_fields=[
+                "instructions_transcript_edited",
+                "instructions_text",
+                "transcription_status",
+                "updated_at",
+            ]
+        )
+        log_prescription_access(
+            prescription,
+            request.user,
+            PrescriptionAccessTypeChoices.ITEM_UPDATE,
+        )
+        return Response(
+            {
+                "item_id": item.id,
+                "transcription_status": item.transcription_status,
+                "is_transcript_approved": bool(item.instructions_text.strip()),
+                "instructions_transcript_raw": item.instructions_transcript_raw,
+                "instructions_transcript_edited": item.instructions_transcript_edited,
+                "instructions_text": item.instructions_text,
+                "message": "Transcript approved successfully.",
             }
         )
 

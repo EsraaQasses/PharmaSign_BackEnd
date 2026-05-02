@@ -241,8 +241,32 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
     instructions_text = serializers.CharField(required=False, allow_blank=True)
 
 
-class PharmacistPrescriptionItemSerializer(SafePrescriptionItemSerializer):
-    pass
+class PharmacistPrescriptionItemSerializer(serializers.ModelSerializer):
+    is_transcript_approved = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrescriptionItem
+        fields = (
+            "id",
+            "medicine_name",
+            "dosage",
+            "frequency",
+            "duration",
+            "instructions_audio",
+            "instructions_text",
+            "transcription_status",
+            "transcription_provider",
+            "transcription_completed_at",
+            "transcription_error_message",
+            "instructions_transcript_raw",
+            "instructions_transcript_edited",
+            "is_transcript_approved",
+            "sign_status",
+        )
+        read_only_fields = fields
+
+    def get_is_transcript_approved(self, obj):
+        return bool(obj.instructions_text.strip())
 
 
 class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Serializer):
@@ -250,6 +274,10 @@ class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Seriali
 
     def validate_audio(self, value):
         return validate_transcription_audio_upload(value)
+
+
+class ApproveTranscriptSerializer(serializers.Serializer):
+    approved_instruction_text = serializers.CharField(required=True, allow_blank=False)
 
 
 class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
