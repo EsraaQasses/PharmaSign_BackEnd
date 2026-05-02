@@ -351,16 +351,71 @@ class StartPatientSessionByQRSerializer(serializers.Serializer):
 
 
 def build_session_patient_payload(patient):
-    medical_info = getattr(patient, "medical_info", None)
     return {
         "id": patient.id,
         "full_name": patient.full_name,
         "phone_number": patient.phone_number or patient.user.phone_number or "",
+        "gender": patient.get_gender_display().lower() if patient.gender else "",
+        "birth_date": patient.birth_date,
+    }
+
+
+def build_session_medical_info_payload(patient):
+    medical_info = getattr(patient, "medical_info", None)
+    return {
         "blood_type": "",
         "allergies": getattr(medical_info, "allergies", ""),
         "chronic_conditions": getattr(medical_info, "chronic_conditions", ""),
         "regular_medications": getattr(medical_info, "notes", ""),
+        "is_pregnant": getattr(medical_info, "is_pregnant", False) or False,
+        "is_breastfeeding": getattr(medical_info, "is_breastfeeding", False) or False,
     }
+
+
+def build_recent_prescription_item_payload(item):
+    return {
+        "id": item.id,
+        "medicine_name": item.medicine_name,
+        "dosage": item.dosage,
+        "frequency": item.frequency,
+        "duration": item.duration,
+        "instructions_text": item.instructions_text,
+        "sign_status": item.sign_status,
+    }
+
+
+def build_recent_prescription_payload(prescription):
+    return {
+        "id": prescription.id,
+        "status": prescription.status,
+        "doctor_name": prescription.doctor_name,
+        "diagnosis": prescription.diagnosis,
+        "notes": prescription.notes,
+        "submitted_at": prescription.submitted_at,
+        "items": [
+            build_recent_prescription_item_payload(item)
+            for item in prescription.items.all()
+        ],
+    }
+
+
+def build_recent_prescriptions_payload(patient):
+    from common.choices import PrescriptionStatusChoices
+    from prescriptions.models import Prescription
+
+    prescriptions = (
+        Prescription.objects.prefetch_related("items")
+        .filter(
+            patient=patient,
+            status=PrescriptionStatusChoices.SUBMITTED,
+            submitted_at__isnull=False,
+        )
+        .order_by("-submitted_at", "-created_at")[:3]
+    )
+    return [
+        build_recent_prescription_payload(prescription)
+        for prescription in prescriptions
+    ]
 
 
 def build_session_response_payload(session):
@@ -372,6 +427,8 @@ def build_session_response_payload(session):
             "expires_at": session.expires_at,
         },
         "patient": build_session_patient_payload(session.patient),
+        "medical_info": build_session_medical_info_payload(session.patient),
+        "recent_prescriptions": build_recent_prescriptions_payload(session.patient),
         "pharmacist": {
             "id": session.pharmacist.id,
             "full_name": session.pharmacist.full_name,

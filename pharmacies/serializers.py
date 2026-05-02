@@ -3,7 +3,14 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from common.choices import RoleChoices
+from accounts.models import PhoneOTP
+from accounts.serializers import (
+    REGISTRATION_PENDING_DETAIL,
+    build_compat_pharmacist_profile_payload,
+    build_compat_user_payload,
+)
+from accounts.services import validate_registration_otp
+from common.choices import ApprovalStatusChoices, RoleChoices
 
 from .models import PharmacistProfile, Pharmacy
 
@@ -120,7 +127,7 @@ class PharmacistProfileSerializer(serializers.ModelSerializer):
 
 
 class PharmacistRegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
     phone_number = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True, write_only=True)
     password = serializers.CharField(
@@ -154,9 +161,10 @@ class PharmacistRegisterSerializer(serializers.Serializer):
     license_id = serializers.CharField(
         required=False, allow_blank=True, write_only=True
     )
+    otp = serializers.CharField(write_only=True, min_length=6, max_length=6)
 
     def validate_email(self, value):
-        if User.objects.filter(email__iexact=value).exists():
+        if value and User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
 
@@ -193,6 +201,11 @@ class PharmacistRegisterSerializer(serializers.Serializer):
                     "license_number": "A pharmacist with this license number already exists."
                 }
             )
+        validate_registration_otp(
+            phone_number,
+            attrs["otp"],
+            PhoneOTP.PURPOSE_PHARMACIST_REGISTER,
+        )
         attrs["full_name"] = full_name
         attrs["phone_number"] = phone_number
         attrs["license_number"] = license_number
@@ -204,6 +217,7 @@ class PharmacistRegisterSerializer(serializers.Serializer):
         validated_data.pop("name", None)
         validated_data.pop("license_id", None)
         validated_data.pop("confirm_password", None)
+        validated_data.pop("otp", None)
         pharmacy = Pharmacy.objects.create(
             name=validated_data["pharmacy_name"],
             address=validated_data["pharmacy_address"],
@@ -212,11 +226,13 @@ class PharmacistRegisterSerializer(serializers.Serializer):
             longitude=validated_data.get("longitude"),
         )
         user = User.objects.create_user(
-            email=validated_data["email"],
+            email=validated_data.get("email") or None,
             password=validated_data["password"],
             phone_number=validated_data.get("phone_number", ""),
             role=RoleChoices.PHARMACIST,
             is_active=True,
+            is_verified=False,
+            approval_status=ApprovalStatusChoices.PENDING,
         )
         profile = PharmacistProfile.objects.create(
             user=user,
@@ -227,6 +243,14 @@ class PharmacistRegisterSerializer(serializers.Serializer):
         pharmacy.owner_user = user
         pharmacy.save(update_fields=["owner_user", "updated_at"])
         return profile
+
+    def to_response(self, profile):
+        return {
+            "detail": REGISTRATION_PENDING_DETAIL,
+            "approval_status": profile.user.approval_status,
+            "user": build_compat_user_payload(profile.user),
+            "profile": build_compat_pharmacist_profile_payload(profile),
+        }
 
 
 class PharmacistMeUpdateSerializer(serializers.Serializer):

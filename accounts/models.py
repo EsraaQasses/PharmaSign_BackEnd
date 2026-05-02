@@ -6,7 +6,7 @@ from django.contrib.auth.models import (
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
-from common.choices import RoleChoices
+from common.choices import ApprovalStatusChoices, RoleChoices
 from common.models import TimeStampedModel
 
 
@@ -24,6 +24,8 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("role", RoleChoices.ADMIN)
+        extra_fields.setdefault("approval_status", ApprovalStatusChoices.APPROVED)
+        extra_fields.setdefault("is_verified", True)
         if not email:
             raise ValueError("Superuser must have an email address.")
         if extra_fields.get("is_staff") is not True:
@@ -42,6 +44,21 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
+    approval_status = models.CharField(
+        max_length=20,
+        choices=ApprovalStatusChoices.choices,
+        default=ApprovalStatusChoices.APPROVED,
+        db_index=True,
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="approved_users",
+        null=True,
+        blank=True,
+    )
+    rejection_reason = models.TextField(blank=True)
 
     objects = UserManager()
 
@@ -52,6 +69,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
         indexes = [
             models.Index(fields=["email"]),
             models.Index(fields=["role", "is_active"]),
+            models.Index(fields=["role", "approval_status"]),
         ]
 
     def __str__(self):
@@ -60,8 +78,10 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
 
 class PhoneOTP(TimeStampedModel):
     PURPOSE_PATIENT_REGISTER = "patient_register"
+    PURPOSE_PHARMACIST_REGISTER = "pharmacist_register"
     PURPOSE_CHOICES = (
         (PURPOSE_PATIENT_REGISTER, "Patient registration"),
+        (PURPOSE_PHARMACIST_REGISTER, "Pharmacist registration"),
     )
 
     phone_number = models.CharField(max_length=20, db_index=True)

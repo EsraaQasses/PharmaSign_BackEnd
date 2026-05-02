@@ -7,9 +7,15 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from common.choices import GenderChoices, HearingDisabilityLevelChoices, RoleChoices
+from common.choices import (
+    ApprovalStatusChoices,
+    GenderChoices,
+    HearingDisabilityLevelChoices,
+    RoleChoices,
+)
 from organizations.models import Organization
 from patients.models import PatientEnrollment, PatientProfile
+from pharmacies.models import PharmacistProfile, Pharmacy
 
 from .models import PhoneOTP, User
 
@@ -19,6 +25,15 @@ class AuthAndPatientFlowTests(APITestCase):
         response = self.client.post(
             reverse("accounts:patient_register_request_otp"),
             {"phone_number": phone_number},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.data["debug_otp"]
+
+    def request_role_registration_otp(self, role, phone_number):
+        response = self.client.post(
+            reverse("accounts:register_request_otp"),
+            {"role": role, "phone_number": phone_number},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -48,6 +63,32 @@ class AuthAndPatientFlowTests(APITestCase):
         response = self.client.post(
             reverse("accounts:patient_register_request_otp"),
             {"phone": "5557001"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("debug_otp", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_request_registration_otp_for_pharmacist_role_returns_debug_otp(self):
+        response = self.client.post(
+            reverse("accounts:register_request_otp"),
+            {"role": "pharmacist", "phone_number": "5557021"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRegex(response.data["debug_otp"], r"^\d{6}$")
+        self.assertEqual(
+            PhoneOTP.objects.get(phone_number="5557021").purpose,
+            PhoneOTP.PURPOSE_PHARMACIST_REGISTER,
+        )
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_specific_registration_otp_endpoint_works(self):
+        response = self.client.post(
+            reverse("accounts:pharmacist_register_request_otp"),
+            {"phone": "5557022"},
             format="json",
         )
 
@@ -116,9 +157,12 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(phone_number="5557005")
         self.assertIsNone(user.email)
+        self.assertEqual(user.approval_status, ApprovalStatusChoices.PENDING)
+        self.assertFalse(user.is_verified)
         self.assertEqual(response.data["user"]["email"], None)
-        self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertNotIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
 
     @override_settings(DEBUG=True)
     def test_patient_register_with_phone_alias_and_otp_succeeds(self):
@@ -340,12 +384,14 @@ class AuthAndPatientFlowTests(APITestCase):
         enrollment.refresh_from_db()
         self.assertTrue(enrollment.is_account_created)
 
-    def test_login_does_not_require_otp(self):
+    def test_login_does_not_require_otp_for_approved_user(self):
         user = User.objects.create_user(
             email=None,
             password="StrongPass123!",
             phone_number="5557016",
             role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
         )
         PatientProfile.objects.create(user=user, full_name="Login Patient")
 
@@ -367,6 +413,8 @@ class AuthAndPatientFlowTests(APITestCase):
             password="StrongPass123!",
             phone_number="5557017",
             role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
         )
         PatientProfile.objects.create(user=user, full_name="Login Patient")
 
@@ -415,32 +463,336 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["detail"][0], "Invalid credentials.")
 
-    def test_pharmacist_register_and_login_compatibility(self):
+    def test_approved_pharmacist_can_login_even_if_profile_not_approved(self):
+        user = User.objects.create_user(
+            email=None,
+            password="TestPass123!",
+            phone_number="0987778589",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+            is_active=True,
+        )
+        pharmacy = Pharmacy.objects.create(name="Login Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=user,
+            pharmacy=pharmacy,
+            full_name="Approved Pharmacist",
+            is_approved=False,
+        )
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "phone_number": "0987778589",
+                "password": "TestPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["id"], user.id)
+        self.assertEqual(response.data["user"]["phone_number"], "0987778589")
+        self.assertEqual(response.data["user"]["role"], RoleChoices.PHARMACIST)
+        self.assertEqual(
+            response.data["user"]["approval_status"],
+            ApprovalStatusChoices.APPROVED,
+        )
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertNotIn("is_approved", response.data["profile"])
+
+    def test_pending_pharmacist_login_returns_pending(self):
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557033",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.PENDING,
+            is_active=True,
+        )
+        pharmacy = Pharmacy.objects.create(name="Pending Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=user,
+            pharmacy=pharmacy,
+            full_name="Pending Pharmacist",
+            is_approved=False,
+        )
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"phone_number": "5557033", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertNotIn("access", response.data)
+
+    def test_rejected_pharmacist_login_returns_rejected_with_reason(self):
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557034",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.REJECTED,
+            rejection_reason="Invalid license",
+            is_active=True,
+        )
+        pharmacy = Pharmacy.objects.create(name="Rejected Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=user,
+            pharmacy=pharmacy,
+            full_name="Rejected Pharmacist",
+            is_approved=False,
+        )
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"phone_number": "5557034", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(response.data["rejection_reason"], "Invalid license")
+        self.assertNotIn("access", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_register_with_valid_otp_creates_pending_account(self):
+        otp = self.request_role_registration_otp("pharmacist", "5557019")
         response = self.client.post(
             reverse("accounts:pharmacist_register"),
             {
-                "email": "pharmacist.register@example.com",
                 "password": "StrongPass123!",
                 "full_name": "Register Pharmacist",
                 "phone_number": "5557019",
                 "license_number": "LIC-7019",
                 "pharmacy_name": "Register Pharmacy",
                 "pharmacy_address": "Damascus",
+                "otp": otp,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        login_response = self.client.post(
-            reverse("accounts:login"),
+        self.assertNotIn("access", response.data)
+        user = User.objects.get(phone_number="5557019")
+        self.assertEqual(user.approval_status, ApprovalStatusChoices.PENDING)
+        self.assertFalse(user.is_verified)
+        self.assertFalse(user.pharmacist_profile.is_approved)
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_register_requires_otp(self):
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
             {
-                "email": "pharmacist.register@example.com",
                 "password": "StrongPass123!",
+                "full_name": "Register Pharmacist",
+                "phone_number": "5557023",
+                "license_number": "LIC-7023",
+                "pharmacy_name": "Register Pharmacy",
+                "pharmacy_address": "Damascus",
             },
             format="json",
         )
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-        self.assertFalse(login_response.data["profile"]["is_approved"])
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("otp", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_duplicate_license_rejected(self):
+        existing_user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557024",
+            role=RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(name="Existing Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=existing_user,
+            pharmacy=pharmacy,
+            full_name="Existing Pharmacist",
+            license_number="LIC-DUP",
+        )
+        otp = self.request_role_registration_otp("pharmacist", "5557025")
+
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Duplicate Pharmacist",
+                "phone_number": "5557025",
+                "license_number": "LIC-DUP",
+                "pharmacy_name": "Register Pharmacy",
+                "pharmacy_address": "Damascus",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("license_number", response.data)
+
+    @override_settings(DEBUG=True)
+    def test_pending_patient_cannot_log_in(self):
+        otp = self.request_registration_otp("5557026")
+        self.client.post(
+            reverse("accounts:patient_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Pending Patient",
+                "phone_number": "5557026",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"phone": "5557026", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+
+    def test_rejected_patient_login_returns_rejected_with_reason(self):
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557027",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.REJECTED,
+            rejection_reason="Invalid documents",
+        )
+        PatientProfile.objects.create(user=user, full_name="Rejected Patient")
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {"phone_number": "5557027", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(response.data["rejection_reason"], "Invalid documents")
+
+    def test_admin_can_approve_patient_user(self):
+        admin_user = User.objects.create_user(
+            email="approval.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557028",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        PatientProfile.objects.create(user=user, full_name="Approve Patient")
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:approve_user", kwargs={"pk": user.pk}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertEqual(user.approval_status, ApprovalStatusChoices.APPROVED)
+        self.assertTrue(user.is_verified)
+        self.assertEqual(user.approved_by, admin_user)
+
+    def test_admin_can_approve_pharmacist_and_profile(self):
+        admin_user = User.objects.create_user(
+            email="approval.pharmacist.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557029",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        pharmacy = Pharmacy.objects.create(name="Approve Pharmacy", address="Damascus")
+        profile = PharmacistProfile.objects.create(
+            user=user,
+            pharmacy=pharmacy,
+            full_name="Approve Pharmacist",
+            is_approved=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:approve_user", kwargs={"pk": user.pk}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        profile.refresh_from_db()
+        self.assertTrue(profile.is_approved)
+
+    def test_normal_patient_cannot_approve_user(self):
+        patient_user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557030",
+            role=RoleChoices.PATIENT,
+        )
+        target = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557031",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Normal Patient")
+        PatientProfile.objects.create(user=target, full_name="Target Patient")
+        self.client.force_authenticate(patient_user)
+
+        response = self.client.post(
+            reverse("accounts:approve_user", kwargs={"pk": target.pk}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_reject_user(self):
+        admin_user = User.objects.create_user(
+            email="reject.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5557032",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        PatientProfile.objects.create(user=user, full_name="Reject Patient")
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:reject_user", kwargs={"pk": user.pk}),
+            {"reason": "Invalid documents"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertEqual(user.approval_status, ApprovalStatusChoices.REJECTED)
+        self.assertEqual(user.rejection_reason, "Invalid documents")
 
     def test_patient_qr_login_compatibility(self):
         user = User.objects.create_user(
@@ -448,6 +800,8 @@ class AuthAndPatientFlowTests(APITestCase):
             password="StrongPass123!",
             role=RoleChoices.PATIENT,
             is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
         )
         profile = PatientProfile.objects.create(
             user=user,
@@ -469,6 +823,35 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
+
+    def test_pending_patient_qr_login_is_blocked(self):
+        user = User.objects.create_user(
+            email="qr.pending.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        profile = PatientProfile.objects.create(
+            user=user,
+            full_name="QR Pending Patient",
+            qr_code_value="qr-pending-token",
+            qr_is_active=True,
+        )
+        profile.set_record_access_pin("1234")
+        profile.save(update_fields=["record_access_pin_hash", "updated_at"])
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {
+                "qr_code_value": "qr-pending-token",
+                "pin": "1234",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
 
     def test_logout_and_change_password_still_work(self):
         user = User.objects.create_user(

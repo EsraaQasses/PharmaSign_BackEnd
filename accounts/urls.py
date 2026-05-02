@@ -14,6 +14,16 @@ urlpatterns = [
         auth_viewset({"post": "pharmacist_register"}),
         name="pharmacist_register",
     ),
+    path(
+        "auth/register/request-otp/",
+        auth_viewset({"post": "register_request_otp"}),
+        name="register_request_otp",
+    ),
+    path(
+        "auth/pharmacist/register/request-otp/",
+        auth_viewset({"post": "pharmacist_register_request_otp"}),
+        name="pharmacist_register_request_otp",
+    ),
     path("auth/login/", auth_viewset({"post": "login"}), name="login"),
     path(
         "auth/patient/self-register/",
@@ -34,6 +44,21 @@ urlpatterns = [
         "auth/patient/qr-login/",
         auth_viewset({"post": "patient_qr_login"}),
         name="patient_qr_login",
+    ),
+    path(
+        "admin/registration-requests/",
+        auth_viewset({"get": "registration_requests"}),
+        name="registration_requests",
+    ),
+    path(
+        "admin/users/<int:pk>/approve/",
+        AuthViewSet.as_view({"post": "approve_user"}),
+        name="approve_user",
+    ),
+    path(
+        "admin/users/<int:pk>/reject/",
+        AuthViewSet.as_view({"post": "reject_user"}),
+        name="reject_user",
     ),
     path("auth/logout/", auth_viewset({"post": "logout"}), name="logout"),
     path(

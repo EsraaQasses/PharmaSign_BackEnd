@@ -6,6 +6,7 @@ from django.utils import timezone
 from common.choices import (
     PrescriptionAccessTypeChoices,
     PrescriptionStatusChoices,
+    SignStatusChoices,
     TranscriptionStatusChoices,
 )
 from common.models import TimeStampedModel
@@ -20,63 +21,79 @@ from pharmacies.models import PharmacistProfile, Pharmacy
 
 
 def medicine_image_upload_to(instance, filename):
-    return build_prescription_media_upload_path(instance, filename, 'images')
+    return build_prescription_media_upload_path(instance, filename, "images")
 
 
 def instructions_audio_upload_to(instance, filename):
-    return build_prescription_media_upload_path(instance, filename, 'audio')
+    return build_prescription_media_upload_path(instance, filename, "audio")
 
 
 def sign_language_video_upload_to(instance, filename):
-    return build_prescription_media_upload_path(instance, filename, 'sign-language')
+    return build_prescription_media_upload_path(instance, filename, "sign-language")
 
 
 class Prescription(TimeStampedModel):
     patient = models.ForeignKey(
         PatientProfile,
         on_delete=models.CASCADE,
-        related_name='prescriptions',
+        related_name="prescriptions",
     )
     pharmacist = models.ForeignKey(
         PharmacistProfile,
         on_delete=models.CASCADE,
-        related_name='prescriptions',
+        related_name="prescriptions",
     )
     pharmacy = models.ForeignKey(
         Pharmacy,
         on_delete=models.CASCADE,
-        related_name='prescriptions',
+        related_name="prescriptions",
+    )
+    session = models.ForeignKey(
+        "patients.PatientSession",
+        on_delete=models.SET_NULL,
+        related_name="prescriptions",
+        null=True,
+        blank=True,
     )
     doctor_name = models.CharField(max_length=255)
     doctor_specialty = models.CharField(max_length=255, blank=True)
+    diagnosis = models.CharField(max_length=255, blank=True)
     status = models.CharField(
         max_length=20,
         choices=PrescriptionStatusChoices.choices,
         default=PrescriptionStatusChoices.DRAFT,
     )
     prescribed_at = models.DateTimeField(default=timezone.now)
+    submitted_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
     reused_from = models.ForeignKey(
-        'self',
+        "self",
         on_delete=models.SET_NULL,
-        related_name='reused_children',
+        related_name="reused_children",
         null=True,
         blank=True,
     )
 
     class Meta:
-        ordering = ('-prescribed_at', '-created_at')
+        ordering = ("-prescribed_at", "-created_at")
         indexes = [
-            models.Index(fields=['patient', '-prescribed_at']),
-            models.Index(fields=['pharmacist', 'status']),
-            models.Index(fields=['pharmacy', 'status']),
+            models.Index(fields=["patient", "-prescribed_at"]),
+            models.Index(fields=["pharmacist", "status"]),
+            models.Index(fields=["pharmacy", "status"]),
+            models.Index(fields=["session"]),
         ]
 
     def clean(self):
-        if self.pharmacist_id and self.pharmacy_id and self.pharmacist.pharmacy_id != self.pharmacy_id:
+        if (
+            self.pharmacist_id
+            and self.pharmacy_id
+            and self.pharmacist.pharmacy_id != self.pharmacy_id
+        ):
             raise ValidationError(
-                {'pharmacy': 'Prescription pharmacy must match the pharmacist pharmacy.'}
+                {
+                    "pharmacy": "Prescription pharmacy must match the pharmacist pharmacy."
+                }
             )
 
     def save(self, *args, **kwargs):
@@ -84,18 +101,24 @@ class Prescription(TimeStampedModel):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'Prescription #{self.pk} - {self.patient.full_name}'
+        return f"Prescription #{self.pk} - {self.patient.full_name}"
 
 
 class PrescriptionItem(TimeStampedModel):
     prescription = models.ForeignKey(
         Prescription,
         on_delete=models.CASCADE,
-        related_name='items',
+        related_name="items",
     )
     medicine_name = models.CharField(max_length=255)
-    medicine_image = models.ImageField(upload_to=medicine_image_upload_to, null=True, blank=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
+    dosage = models.CharField(max_length=100, blank=True)
+    frequency = models.CharField(max_length=100, blank=True)
+    duration = models.CharField(max_length=100, blank=True)
+    instructions_text = models.TextField(blank=True)
+    medicine_image = models.ImageField(
+        upload_to=medicine_image_upload_to, null=True, blank=True
+    )
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(null=True, blank=True)
     instructions_audio = models.FileField(
         upload_to=instructions_audio_upload_to,
@@ -119,13 +142,19 @@ class PrescriptionItem(TimeStampedModel):
         blank=True,
     )
     supporting_text = models.TextField(blank=True)
+    sign_status = models.CharField(
+        max_length=20,
+        choices=SignStatusChoices.choices,
+        default=SignStatusChoices.PENDING,
+    )
     is_confirmed = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ('created_at',)
+        ordering = ("created_at",)
         indexes = [
-            models.Index(fields=['prescription', 'is_confirmed']),
-            models.Index(fields=['medicine_name']),
+            models.Index(fields=["prescription", "is_confirmed"]),
+            models.Index(fields=["prescription", "sign_status"]),
+            models.Index(fields=["medicine_name"]),
         ]
 
     def clean(self):
@@ -152,24 +181,26 @@ class PrescriptionAccessLog(models.Model):
     prescription = models.ForeignKey(
         Prescription,
         on_delete=models.CASCADE,
-        related_name='access_logs',
+        related_name="access_logs",
     )
     accessed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        related_name='prescription_access_logs',
+        related_name="prescription_access_logs",
         null=True,
         blank=True,
     )
-    access_type = models.CharField(max_length=20, choices=PrescriptionAccessTypeChoices.choices)
+    access_type = models.CharField(
+        max_length=20, choices=PrescriptionAccessTypeChoices.choices
+    )
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ('-timestamp',)
+        ordering = ("-timestamp",)
         indexes = [
-            models.Index(fields=['prescription', 'timestamp']),
-            models.Index(fields=['access_type']),
+            models.Index(fields=["prescription", "timestamp"]),
+            models.Index(fields=["access_type"]),
         ]
 
     def __str__(self):
-        return f'{self.prescription_id} - {self.access_type}'
+        return f"{self.prescription_id} - {self.access_type}"

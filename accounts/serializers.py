@@ -1,23 +1,28 @@
-import logging
-import random
-
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from django.utils import timezone
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from common.choices import RoleChoices
+from common.choices import ApprovalStatusChoices, RoleChoices
 from common.utils import verify_pin
 from patients.models import PatientMedicalInfo, PatientProfile
 from patients.services import assign_patient_qr_code, get_patient_by_login_qr_token
 from .models import PhoneOTP
+from .services import (
+    OTP_EXPIRY_SECONDS,
+    generate_registration_otp,
+    registration_purpose_for_role,
+    validate_registration_otp,
+)
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
-
-OTP_EXPIRY_SECONDS = 300
+PENDING_ACCOUNT_DETAIL = "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة."
+REJECTED_ACCOUNT_DETAIL = "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة."
+REGISTRATION_PENDING_DETAIL = (
+    "Registration request submitted successfully. Your account is pending organization approval."
+)
 
 
 def build_compat_user_payload(user):
@@ -28,6 +33,7 @@ def build_compat_user_payload(user):
         "role": user.role,
         "is_active": user.is_active,
         "is_verified": user.is_verified,
+        "approval_status": user.approval_status,
     }
 
 
@@ -57,14 +63,16 @@ def build_compat_pharmacy_payload(pharmacy):
     }
 
 
-def build_compat_pharmacist_profile_payload(profile):
-    return {
+def build_compat_pharmacist_profile_payload(profile, *, include_approval=True):
+    payload = {
         "id": profile.id,
         "full_name": profile.full_name,
         "license_number": profile.license_number,
-        "is_approved": profile.is_approved,
         "pharmacy": build_compat_pharmacy_payload(profile.pharmacy),
     }
+    if include_approval:
+        payload["is_approved"] = profile.is_approved
+    return payload
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -79,6 +87,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
             "is_active",
             "is_verified",
+            "approval_status",
             "created_at",
             "updated_at",
             "profile",
@@ -144,7 +153,8 @@ class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
-class PatientRegistrationOTPRequestSerializer(serializers.Serializer):
+class RegistrationOTPRequestSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=("patient", "pharmacist"))
     phone_number = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -159,34 +169,15 @@ class PatientRegistrationOTPRequestSerializer(serializers.Serializer):
                 {"detail": "Phone number is already registered."}
             )
         attrs["phone_number"] = phone_number
+        attrs["purpose"] = registration_purpose_for_role(attrs["role"])
         return attrs
 
     def save(self, **kwargs):
         phone_number = self.validated_data["phone_number"]
-        purpose = PhoneOTP.PURPOSE_PATIENT_REGISTER
-        PhoneOTP.objects.filter(
-            phone_number=phone_number,
-            purpose=purpose,
-            used_at__isnull=True,
-        ).update(used_at=timezone.now())
-
-        otp = f"{random.SystemRandom().randint(0, 999999):06d}"
-        challenge = PhoneOTP(
-            phone_number=phone_number,
-            purpose=purpose,
-            expires_at=timezone.now() + timezone.timedelta(seconds=OTP_EXPIRY_SECONDS),
+        otp, _challenge = generate_registration_otp(
+            phone_number,
+            self.validated_data["purpose"],
         )
-        challenge.set_code(otp)
-        challenge.save()
-
-        if settings.DEBUG:
-            logger.warning(
-                "Development OTP for %s (%s): %s",
-                phone_number,
-                purpose,
-                otp,
-            )
-
         payload = {
             "detail": "Registration OTP generated successfully.",
             "expires_in_seconds": OTP_EXPIRY_SECONDS,
@@ -196,36 +187,12 @@ class PatientRegistrationOTPRequestSerializer(serializers.Serializer):
         return payload
 
 
-def validate_patient_registration_otp(phone_number, otp):
-    challenge = (
-        PhoneOTP.objects.filter(
-            phone_number=phone_number,
-            purpose=PhoneOTP.PURPOSE_PATIENT_REGISTER,
-            used_at__isnull=True,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if not challenge:
-        raise serializers.ValidationError({"detail": "Invalid OTP."})
-    if challenge.attempts >= challenge.max_attempts:
-        challenge.mark_used()
-        raise serializers.ValidationError({"detail": "Too many OTP attempts."})
-    if challenge.is_expired:
-        challenge.mark_used()
-        raise serializers.ValidationError({"detail": "OTP has expired."})
-    if not challenge.check_code(otp):
-        challenge.attempts += 1
-        update_fields = ["attempts", "updated_at"]
-        if challenge.attempts >= challenge.max_attempts:
-            challenge.used_at = timezone.now()
-            update_fields.append("used_at")
-        challenge.save(update_fields=update_fields)
-        if challenge.attempts >= challenge.max_attempts:
-            raise serializers.ValidationError({"detail": "Too many OTP attempts."})
-        raise serializers.ValidationError({"detail": "Invalid OTP."})
-    challenge.mark_used()
-    return challenge
+class PatientRegistrationOTPRequestSerializer(RegistrationOTPRequestSerializer):
+    role = serializers.CharField(required=False, default="patient")
+
+    def validate(self, attrs):
+        attrs["role"] = "patient"
+        return super().validate(attrs)
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -262,7 +229,10 @@ class AuthMeSerializer(serializers.Serializer):
         elif user.role == RoleChoices.PHARMACIST and hasattr(
             user, "pharmacist_profile"
         ):
-            profile = build_compat_pharmacist_profile_payload(user.pharmacist_profile)
+            profile = build_compat_pharmacist_profile_payload(
+                user.pharmacist_profile,
+                include_approval=False,
+            )
 
         return {
             "user": build_compat_user_payload(user),
@@ -397,6 +367,7 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
         attrs["phone_number"] = phone_number
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         validated_data.pop("phone", None)
         validated_data.pop("name", None)
@@ -409,6 +380,8 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
             phone_number=validated_data.get("phone_number", ""),
             role=RoleChoices.PATIENT,
             is_active=True,
+            is_verified=False,
+            approval_status=ApprovalStatusChoices.PENDING,
         )
         profile = PatientProfile.objects.create(
             user=user,
@@ -426,3 +399,22 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
         PatientMedicalInfo.objects.get_or_create(patient=profile)
         assign_patient_qr_code(profile)
         return user
+
+    def to_response(self, user):
+        return {
+            "detail": REGISTRATION_PENDING_DETAIL,
+            "approval_status": user.approval_status,
+            "user": build_compat_user_payload(user),
+            "profile": {
+                "id": user.patient_profile.id,
+                "full_name": user.patient_profile.full_name,
+            },
+        }
+
+
+def validate_patient_registration_otp(phone_number, otp):
+    return validate_registration_otp(
+        phone_number,
+        otp,
+        PhoneOTP.PURPOSE_PATIENT_REGISTER,
+    )

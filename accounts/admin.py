@@ -13,9 +13,10 @@ class UserAdmin(BaseUserAdmin):
         'is_staff',
         'is_active',
         'is_verified',
+        'approval_status',
         'created_at',
     )
-    list_filter = ('role', 'is_staff', 'is_active', 'is_verified')
+    list_filter = ('role', 'approval_status', 'is_staff', 'is_active', 'is_verified')
     search_fields = ('email', 'phone_number')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at', 'last_login')
@@ -31,6 +32,10 @@ class UserAdmin(BaseUserAdmin):
                     'is_staff',
                     'is_superuser',
                     'is_verified',
+                    'approval_status',
+                    'approved_at',
+                    'approved_by',
+                    'rejection_reason',
                 )
             },
         ),
@@ -51,6 +56,7 @@ class UserAdmin(BaseUserAdmin):
                     'is_staff',
                     'is_active',
                     'is_verified',
+                    'approval_status',
                 ),
             },
         ),

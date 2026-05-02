@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "patients",
     "pharmacies",
     "prescriptions",
+    "transcriptions",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -216,6 +217,13 @@ PHARMASIGN_TRANSCRIPTION_PROVIDER = config(
     "PHARMASIGN_TRANSCRIPTION_PROVIDER",
     default="placeholder",
 )
+TRANSCRIPTION_PROVIDER = config("TRANSCRIPTION_PROVIDER", default="groq")
+GROQ_API_KEY = config("GROQ_API_KEY", default="")
+GROQ_WHISPER_MODEL = config(
+    "GROQ_WHISPER_MODEL",
+    default="whisper-large-v3",
+)
+MAX_AUDIO_UPLOAD_SIZE_MB = config("MAX_AUDIO_UPLOAD_SIZE_MB", default=10, cast=int)
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

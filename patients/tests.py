@@ -6,7 +6,12 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from common.choices import GenderChoices, HearingDisabilityLevelChoices, RoleChoices
+from common.choices import (
+    GenderChoices,
+    HearingDisabilityLevelChoices,
+    PrescriptionStatusChoices,
+    RoleChoices,
+)
 from organizations.models import Organization, OrganizationStaffProfile
 from patients.models import (
     PatientMedicalInfo,
@@ -15,6 +20,7 @@ from patients.models import (
     PatientSessionQR,
 )
 from pharmacies.models import PharmacistProfile, Pharmacy
+from prescriptions.models import Prescription, PrescriptionItem
 
 
 class PatientSessionFlowTests(APITestCase):
@@ -447,12 +453,16 @@ class PatientSessionQRFlowTests(APITestCase):
             organization=self.organization,
             full_name="Session QR Patient",
             phone_number="5558000",
+            birth_date=date(2000, 1, 1),
+            gender=GenderChoices.FEMALE,
         )
         PatientMedicalInfo.objects.create(
             patient=self.patient,
             allergies="Penicillin",
             chronic_conditions="Asthma",
             notes="Vitamin D",
+            is_pregnant=False,
+            is_breastfeeding=True,
         )
         self.pharmacist_user = User.objects.create_user(
             email="approved.session@example.com",
@@ -471,12 +481,45 @@ class PatientSessionQRFlowTests(APITestCase):
             full_name="Approved Pharmacist",
             is_approved=True,
         )
+        self.other_patient_user = User.objects.create_user(
+            email=None,
+            password="StrongPass123!",
+            phone_number="5558001",
+            role=RoleChoices.PATIENT,
+        )
+        self.other_patient = PatientProfile.objects.create(
+            user=self.other_patient_user,
+            organization=self.organization,
+            full_name="Other Session QR Patient",
+            phone_number="5558001",
+        )
 
     def generate_qr(self):
         self.client.force_authenticate(self.patient_user)
         response = self.client.post(reverse("patient-session-qr"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.data["qr_token"]
+
+    def create_submitted_prescription(self, patient, submitted_at, doctor_name):
+        prescription = Prescription.objects.create(
+            patient=patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name=doctor_name,
+            diagnosis="Flu",
+            notes="Take medicines after food",
+            status=PrescriptionStatusChoices.SUBMITTED,
+            submitted_at=submitted_at,
+        )
+        PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Paracetamol",
+            dosage="500mg",
+            frequency="3 times daily",
+            duration="5 days",
+            instructions_text="Take one tablet after food three times a day",
+        )
+        return prescription
 
     def test_patient_can_generate_session_qr(self):
         token = self.generate_qr()
@@ -522,6 +565,65 @@ class PatientSessionQRFlowTests(APITestCase):
         self.assertEqual(session.patient, self.patient)
         self.assertEqual(session.pharmacist, self.pharmacist)
         self.assertEqual(session.pharmacy, self.pharmacy)
+
+    def test_start_session_response_includes_clinical_context(self):
+        now = timezone.now()
+        draft = Prescription.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name="Draft Doctor",
+            diagnosis="Draft",
+            status=PrescriptionStatusChoices.DRAFT,
+        )
+        newest = self.create_submitted_prescription(
+            self.patient, now - timezone.timedelta(hours=1), "Doctor Newest"
+        )
+        second = self.create_submitted_prescription(
+            self.patient, now - timezone.timedelta(hours=2), "Doctor Second"
+        )
+        third = self.create_submitted_prescription(
+            self.patient, now - timezone.timedelta(hours=3), "Doctor Third"
+        )
+        fourth = self.create_submitted_prescription(
+            self.patient, now - timezone.timedelta(hours=4), "Doctor Fourth"
+        )
+        other_patient_prescription = self.create_submitted_prescription(
+            self.other_patient, now, "Doctor Other Patient"
+        )
+        token = self.generate_qr()
+        self.client.force_authenticate(self.pharmacist_user)
+
+        response = self.client.post(
+            reverse("pharmacist-session-start-by-qr"),
+            {"qr_token": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("medical_info", response.data)
+        self.assertIn("recent_prescriptions", response.data)
+        self.assertEqual(response.data["patient"]["gender"], "female")
+        self.assertEqual(response.data["patient"]["birth_date"], date(2000, 1, 1))
+        self.assertEqual(response.data["medical_info"]["allergies"], "Penicillin")
+        self.assertEqual(response.data["medical_info"]["chronic_conditions"], "Asthma")
+        self.assertEqual(
+            response.data["medical_info"]["regular_medications"], "Vitamin D"
+        )
+        self.assertFalse(response.data["medical_info"]["is_pregnant"])
+        self.assertTrue(response.data["medical_info"]["is_breastfeeding"])
+        recent_ids = [item["id"] for item in response.data["recent_prescriptions"]]
+        self.assertEqual(recent_ids, [newest.id, second.id, third.id])
+        self.assertNotIn(fourth.id, recent_ids)
+        self.assertNotIn(draft.id, recent_ids)
+        self.assertNotIn(other_patient_prescription.id, recent_ids)
+        self.assertEqual(
+            response.data["recent_prescriptions"][0]["items"][0]["medicine_name"],
+            "Paracetamol",
+        )
+        self.assertNotIn("qr_code_value", response.data["patient"])
+        self.assertNotIn("qr_is_active", response.data["patient"])
+        self.assertNotIn("token_hash", response.data)
 
     def test_start_session_accepts_qr_payload_alias(self):
         token = self.generate_qr()
