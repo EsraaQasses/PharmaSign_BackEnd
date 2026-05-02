@@ -2,7 +2,9 @@ import os
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+from dotenv import load_dotenv
 
+load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -218,10 +220,10 @@ PHARMASIGN_TRANSCRIPTION_PROVIDER = config(
     default="placeholder",
 )
 TRANSCRIPTION_PROVIDER = config("TRANSCRIPTION_PROVIDER", default="groq")
-GROQ_API_KEY = config("GROQ_API_KEY", default="")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_WHISPER_MODEL = config(
     "GROQ_WHISPER_MODEL",
-    default="whisper-large-v3",
+    default="whisper-large-v3-turbo",
 )
 MAX_AUDIO_UPLOAD_SIZE_MB = config("MAX_AUDIO_UPLOAD_SIZE_MB", default=10, cast=int)
 
@@ -231,7 +233,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # DRF Configuration
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "accounts.authentication.ApprovalAwareJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",

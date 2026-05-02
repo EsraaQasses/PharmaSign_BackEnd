@@ -92,10 +92,10 @@ class PrescriptionPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_pharmacist_can_only_create_prescription_for_allowed_patient_scope(self):
+    def test_legacy_prescription_create_is_disabled_without_session(self):
         self.client.force_authenticate(self.pharmacist_user)
 
-        allowed_response = self.client.post(
+        response = self.client.post(
             reverse("prescription-list"),
             {
                 "patient": self.patient_one.id,
@@ -104,18 +104,15 @@ class PrescriptionPermissionTests(APITestCase):
             },
             format="json",
         )
-        denied_response = self.client.post(
-            reverse("prescription-list"),
-            {
-                "patient": self.patient_two.id,
-                "doctor_name": "Doctor Denied",
-                "doctor_specialty": "General",
-            },
-            format="json",
-        )
 
-        self.assertEqual(allowed_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(denied_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"],
+            (
+                "Use /api/pharmacist/prescriptions/ with a valid active patient "
+                "session to create prescriptions."
+            ),
+        )
 
     def test_staff_without_manage_patients_cannot_retrieve_prescription(self):
         staff_user = User.objects.create_user(

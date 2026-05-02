@@ -661,6 +661,55 @@ class PatientSessionQRFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["detail"], "Pharmacist account is not approved.")
 
+    def test_unapproved_pharmacist_cannot_list_sessions(self):
+        unapproved_user = User.objects.create_user(
+            email="unapproved.list.session@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        PharmacistProfile.objects.create(
+            user=unapproved_user,
+            pharmacy=self.pharmacy,
+            full_name="Unapproved List",
+            is_approved=False,
+        )
+        self.client.force_authenticate(unapproved_user)
+
+        response = self.client.get(reverse("pharmacist-sessions"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["detail"], "Pharmacist account is not approved.")
+
+    def test_unapproved_pharmacist_cannot_end_session(self):
+        session = PatientSession.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            status=PatientSession.STATUS_ACTIVE,
+            expires_at=timezone.now() + timezone.timedelta(minutes=30),
+        )
+        unapproved_user = User.objects.create_user(
+            email="unapproved.end.session@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        PharmacistProfile.objects.create(
+            user=unapproved_user,
+            pharmacy=self.pharmacy,
+            full_name="Unapproved End",
+            is_approved=False,
+        )
+        self.client.force_authenticate(unapproved_user)
+
+        response = self.client.post(
+            reverse("pharmacist-session-end", kwargs={"session_id": session.id}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["detail"], "Pharmacist account is not approved.")
+
     def test_patient_cannot_start_session_by_qr(self):
         token = self.generate_qr()
         self.client.force_authenticate(self.patient_user)

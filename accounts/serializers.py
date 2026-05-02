@@ -5,6 +5,10 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from accounts.authentication import (
+    PENDING_ACCOUNT_DETAIL as AUTH_PENDING_ACCOUNT_DETAIL,
+    REJECTED_ACCOUNT_DETAIL as AUTH_REJECTED_ACCOUNT_DETAIL,
+)
 from common.choices import ApprovalStatusChoices, RoleChoices
 from common.utils import verify_pin
 from patients.models import PatientMedicalInfo, PatientProfile
@@ -23,6 +27,8 @@ REJECTED_ACCOUNT_DETAIL = "تم رفض طلب إنشاء الحساب. يرجى 
 REGISTRATION_PENDING_DETAIL = (
     "Registration request submitted successfully. Your account is pending organization approval."
 )
+PENDING_ACCOUNT_DETAIL = AUTH_PENDING_ACCOUNT_DETAIL
+REJECTED_ACCOUNT_DETAIL = AUTH_REJECTED_ACCOUNT_DETAIL
 
 
 def build_compat_user_payload(user):

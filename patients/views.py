@@ -227,7 +227,7 @@ class PatientSessionViewSet(viewsets.ViewSet):
 
 
 class PharmacistPatientSessionViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, IsPharmacistRole]
+    permission_classes = [IsAuthenticated, IsApprovedPharmacistRole]
 
     def _get_pharmacist_profile(self):
         return self.request.user.pharmacist_profile

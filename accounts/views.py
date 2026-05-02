@@ -7,6 +7,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from pharmacies.serializers import PharmacistRegisterSerializer
@@ -46,15 +50,38 @@ class AuthViewSet(viewsets.ViewSet):
         return [permission() for permission in permission_classes]
 
     def _can_manage_registration_requests(self, user):
-        if user.is_superuser or user.is_staff:
+        if user.is_superuser:
             return True
         staff_profile = getattr(user, "organization_staff_profile", None)
-        return bool(
-            staff_profile
-            and (
+        if staff_profile:
+            return bool(
                 staff_profile.can_manage_patients
                 or staff_profile.can_manage_pharmacists
             )
+        return bool(user.is_staff)
+
+    def _manageable_registration_roles(self, user):
+        if user.is_superuser:
+            return [RoleChoices.PATIENT, RoleChoices.PHARMACIST]
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if staff_profile:
+            roles = []
+            if staff_profile.can_manage_patients:
+                roles.append(RoleChoices.PATIENT)
+            if staff_profile.can_manage_pharmacists:
+                roles.append(RoleChoices.PHARMACIST)
+            return roles
+        if user.is_staff:
+            return [RoleChoices.PATIENT, RoleChoices.PHARMACIST]
+        return []
+
+    def _can_manage_user_role(self, manager, target_user):
+        return target_user.role in self._manageable_registration_roles(manager)
+
+    def _role_approval_denied(self):
+        return Response(
+            {"detail": "You do not have permission to approve this user role."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     def _registration_management_denied(self):
@@ -81,7 +108,23 @@ class AuthViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if (
+            user.role == RoleChoices.PHARMACIST
+            and hasattr(user, "pharmacist_profile")
+            and not user.pharmacist_profile.is_approved
+        ):
+            return Response(
+                {
+                    "detail": PENDING_ACCOUNT_DETAIL,
+                    "approval_status": ApprovalStatusChoices.PENDING,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
         return None
+
+    def _blacklist_user_tokens(self, user):
+        for outstanding_token in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=outstanding_token)
 
     def _build_auth_response(self, user, status_code=status.HTTP_200_OK):
         refresh = RefreshToken.for_user(user)
@@ -160,7 +203,7 @@ class AuthViewSet(viewsets.ViewSet):
             return self._registration_management_denied()
         users = User.objects.filter(
             approval_status=ApprovalStatusChoices.PENDING,
-            role__in=[RoleChoices.PATIENT, RoleChoices.PHARMACIST],
+            role__in=self._manageable_registration_roles(request.user),
         ).order_by("-created_at")
         return Response(
             [
@@ -181,6 +224,8 @@ class AuthViewSet(viewsets.ViewSet):
         if not self._can_manage_registration_requests(request.user):
             return self._registration_management_denied()
         user = get_object_or_404(User, pk=pk)
+        if not self._can_manage_user_role(request.user, user):
+            return self._role_approval_denied()
         user.approval_status = ApprovalStatusChoices.APPROVED
         user.approved_at = timezone.now()
         user.approved_by = request.user
@@ -217,11 +262,24 @@ class AuthViewSet(viewsets.ViewSet):
         if not self._can_manage_registration_requests(request.user):
             return self._registration_management_denied()
         user = get_object_or_404(User, pk=pk)
+        if not self._can_manage_user_role(request.user, user):
+            return self._role_approval_denied()
         user.approval_status = ApprovalStatusChoices.REJECTED
         user.rejection_reason = request.data.get("reason", "")
+        user.is_verified = False
         user.save(
-            update_fields=["approval_status", "rejection_reason", "updated_at"]
+            update_fields=[
+                "approval_status",
+                "rejection_reason",
+                "is_verified",
+                "updated_at",
+            ]
         )
+        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
+            profile = user.pharmacist_profile
+            profile.is_approved = False
+            profile.save(update_fields=["is_approved", "updated_at"])
+        self._blacklist_user_tokens(user)
         return Response(
             {
                 "detail": "User rejected successfully.",

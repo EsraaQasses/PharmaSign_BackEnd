@@ -20,7 +20,6 @@ from common.permissions import (
     IsPharmacistRole,
     IsPatientRole,
     has_patient_management_access,
-    pharmacist_can_access_patient,
 )
 
 from .models import Prescription, PrescriptionItem
@@ -120,22 +119,14 @@ class PrescriptionViewSet(
         return queryset.none()
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        patient = serializer.validated_data["patient"]
-        if not pharmacist_can_access_patient(request.user, patient):
-            raise PermissionDenied("You do not have workflow access to this patient.")
-        pharmacist_profile = request.user.pharmacist_profile
-        prescription = serializer.save(
-            pharmacist=pharmacist_profile,
-            pharmacy=pharmacist_profile.pharmacy,
-            status=PrescriptionStatusChoices.DRAFT,
-        )
         return Response(
-            PrescriptionSerializer(
-                prescription, context=self.get_serializer_context()
-            ).data,
-            status=status.HTTP_201_CREATED,
+            {
+                "detail": (
+                    "Use /api/pharmacist/prescriptions/ with a valid active patient "
+                    "session to create prescriptions."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     def retrieve(self, request, *args, **kwargs):

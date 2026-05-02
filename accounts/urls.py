@@ -1,6 +1,5 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenRefreshView
-
+from .jwt import ApprovalAwareTokenRefreshView
 from .views import AuthViewSet
 
 
@@ -66,6 +65,6 @@ urlpatterns = [
         auth_viewset({"post": "change_password"}),
         name="change_password",
     ),
-    path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("auth/refresh/", ApprovalAwareTokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", auth_viewset({"get": "me"}), name="me"),
 ]
