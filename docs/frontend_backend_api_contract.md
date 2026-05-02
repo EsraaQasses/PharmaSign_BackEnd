@@ -1,371 +1,103 @@
 # PharmaSign Frontend Backend API Contract
 
-## 1. Base URL
+This document describes the backend contract the frontend should use after the security finalization work.
 
-- Local development base URL:
+## Base URL
+
+Local development:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-- All API paths start with `/api`.
+All API paths start with:
 
-## 2. Authentication Rules
+```text
+/api
+```
 
-- Authorization header format:
+Example full URL:
+
+```text
+http://127.0.0.1:8000/api/auth/login/
+```
+
+## Authentication Header
+
+Protected endpoints use:
 
 ```text
 Authorization: Bearer <access_token>
 ```
+
+Rules:
 
 - `patient_access_token` is used only for patient endpoints.
 - `pharmacist_access_token` is used only for pharmacist endpoints.
+- `admin_access_token` is used for admin/organization approval endpoints.
 - `qr_token` is not an auth token.
 - `qr_token` must never be sent in the `Authorization` header.
-- `qr_token` is sent only in the request body for QR-related endpoints.
-- Authenticated endpoints return `401 Unauthorized` when the access token is missing or invalid.
-- Role-restricted endpoints return `403 Forbidden` when the authenticated user has the wrong role.
+- `qr_token` is sent only in request bodies for QR-related endpoints.
 
-## 3. Token Usage Table
+If a user becomes pending, rejected, or inactive after a token was issued, protected API requests with that old access token are blocked.
 
-| Token/value | Where it comes from | Where it is used | Notes |
-| --- | --- | --- | --- |
-| Patient access token | `POST /api/auth/login/`, `POST /api/auth/patient/register/`, or `POST /api/auth/patient/qr-login/` for a patient user | Patient endpoints such as `/api/patients/me/`, `/api/patients/me/settings/`, `/api/patients/me/session-qr/`, `/api/patients/me/prescriptions/` | Send as `Authorization: Bearer <access_token>`. |
-| Pharmacist access token | `POST /api/auth/login/` or `POST /api/auth/pharmacist/register/` for a pharmacist user | Pharmacist endpoints such as `/api/pharmacist/me/`, `/api/pharmacist/me/pharmacy/`, `/api/pharmacist/sessions/` | Send as `Authorization: Bearer <access_token>`. Some endpoints require `profile.is_approved = true`. |
-| Refresh token | Any auth endpoint that returns tokens | `POST /api/auth/refresh/`, `POST /api/auth/logout/` | Store securely. Use to obtain a new access token or blacklist on logout. |
-| Patient Login QR token | Admin/organization endpoint `POST /api/admin/patients/{patient_id}/login-qr/` | `POST /api/auth/patient/qr-login/` | Used by patient to log into their account. Not used for pharmacist sessions. |
-| Patient Session QR token | Patient endpoint `POST /api/patients/me/session-qr/` | `POST /api/pharmacist/sessions/start-by-qr/` | Temporary token displayed as QR in patient app, scanned by pharmacist, expires after 5 minutes, one-time use. |
+## Final Registration And Auth Flow
 
-## 4. Public/Auth APIs
+This flow applies to both patients and pharmacists:
 
-### POST `/api/auth/login/`
+1. User requests registration OTP using phone number.
+2. User submits registration data with OTP.
+3. Backend creates the account with `approval_status: "pending"`.
+4. Registration response does not include `access` or `refresh`.
+5. User cannot log in until organization/admin approves the account.
+6. Pending login returns `403 Forbidden`:
 
-Purpose: Login with phone number or email and password.
+```json
+{
+  "detail": "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة.",
+  "approval_status": "pending"
+}
+```
 
-Required auth: None.
+7. After approval, user logs in with `phone_number` and `password`.
+8. OTP is not used during login.
+9. Login success returns `access` and `refresh` tokens.
 
-Headers:
+Rejected login returns `403 Forbidden`:
+
+```json
+{
+  "detail": "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة.",
+  "approval_status": "rejected",
+  "rejection_reason": "..."
+}
+```
+
+## OTP Endpoints
+
+### Patient Registration OTP
 
 ```text
-Content-Type: application/json
+POST /api/auth/patient/register/request-otp/
 ```
 
-Request body examples:
+Request:
 
 ```json
 {
-  "phone_number": "0999999999",
-  "password": "StrongPass123!"
+  "phone_number": "0999000001"
 }
 ```
 
-Aliases:
+Alternative field:
 
 ```json
 {
-  "phone": "0999999999",
-  "password": "StrongPass123!"
+  "phone": "0999000001"
 }
 ```
 
-Email login remains supported:
-
-```json
-{
-  "email": "patient@example.com",
-  "password": "StrongPass123!"
-}
-```
-
-Success response example:
-
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999999999",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient One",
-    "national_id": "",
-    "blood_type": "",
-    "allergies": "",
-    "chronic_conditions": "",
-    "regular_medications": "",
-    "is_pregnant": false
-  },
-  "access": "access.jwt.token",
-  "refresh": "refresh.jwt.token"
-}
-```
-
-Common error response examples:
-
-```json
-{
-  "detail": ["Email or phone number is required."]
-}
-```
-
-```json
-{
-  "detail": ["Invalid credentials."]
-}
-```
-
-What frontend should store from response:
-
-- Store `access` as the current role-specific access token.
-- Store `refresh` securely for token refresh/logout.
-- Store `user.role` to route the user to the correct app area.
-- Store or cache `profile` only as needed for UI.
-
-### POST `/api/auth/refresh/`
-
-Purpose: Exchange refresh token for a new access token.
-
-Required auth: None.
-
-Headers:
-
-```text
-Content-Type: application/json
-```
-
-Request body example:
-
-```json
-{
-  "refresh": "refresh.jwt.token"
-}
-```
-
-Success response example:
-
-```json
-{
-  "access": "new.access.jwt.token"
-}
-```
-
-Common error response example:
-
-```json
-{
-  "detail": "Token is invalid or expired",
-  "code": "token_not_valid"
-}
-```
-
-What frontend should store from response:
-
-- Replace the old access token with `access`.
-
-### GET `/api/auth/me/`
-
-Purpose: Get the current authenticated user and role profile.
-
-Required auth: Access token required.
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-```
-
-Request body: None.
-
-Success response example for patient:
-
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999999999",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient One",
-    "national_id": "",
-    "blood_type": "",
-    "allergies": "",
-    "chronic_conditions": "",
-    "regular_medications": "",
-    "is_pregnant": false
-  }
-}
-```
-
-Success response example for pharmacist:
-
-```json
-{
-  "user": {
-    "id": 2,
-    "email": "pharmacist@example.com",
-    "phone_number": "0988888888",
-    "role": "pharmacist",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Pharmacist One",
-    "license_number": "LIC-123",
-    "is_approved": true,
-    "pharmacy": {
-      "id": 1,
-      "name": "PharmaSign Pharmacy",
-      "address": "Damascus",
-      "phone": "011111111",
-      "lat": null,
-      "lng": null,
-      "has_sign_service": true
-    }
-  }
-}
-```
-
-Common error response example:
-
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
-
-What frontend should store from response:
-
-- Store or refresh local `user` and `profile` state.
-
-### POST `/api/auth/logout/`
-
-Purpose: Blacklist a refresh token.
-
-Required auth: Access token required.
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-Request body example:
-
-```json
-{
-  "refresh": "refresh.jwt.token"
-}
-```
-
-Success response example:
-
-```json
-{
-  "detail": "Logged out successfully."
-}
-```
-
-Common error response example:
-
-```json
-{
-  "refresh": ["Token is invalid or expired"]
-}
-```
-
-What frontend should store from response:
-
-- Store nothing. Clear local access/refresh tokens after successful logout.
-
-### POST `/api/auth/change-password/`
-
-Purpose: Change password for the authenticated user.
-
-Required auth: Access token required.
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-Request body example:
-
-```json
-{
-  "current_password": "OldPass123!",
-  "new_password": "NewPass123!",
-  "confirm_password": "NewPass123!"
-}
-```
-
-Success response example:
-
-```json
-{
-  "detail": "Password changed successfully."
-}
-```
-
-Common error response examples:
-
-```json
-{
-  "current_password": ["Current password is incorrect."]
-}
-```
-
-```json
-{
-  "confirm_password": ["New password and confirmation do not match."]
-}
-```
-
-What frontend should store from response:
-
-- Store nothing. The user may be prompted to log in again depending on app policy.
-
-### POST `/api/auth/patient/register/request-otp/`
-
-Purpose: Request a development-only OTP for patient registration phone verification.
-
-Required auth: None.
-
-Headers:
-
-```text
-Content-Type: application/json
-```
-
-Request body example:
-
-```json
-{
-  "phone_number": "0999999999"
-}
-```
-
-Alias:
-
-```json
-{
-  "phone": "0999999999"
-}
-```
-
-Success response example when `DEBUG=True`:
+Response when `DEBUG=True`:
 
 ```json
 {
@@ -375,7 +107,7 @@ Success response example when `DEBUG=True`:
 }
 ```
 
-Success response example when `DEBUG=False`:
+Response when `DEBUG=False`:
 
 ```json
 {
@@ -384,275 +116,216 @@ Success response example when `DEBUG=False`:
 }
 ```
 
-Common error response examples:
-
-```json
-{
-  "detail": ["Phone number is required."]
-}
-```
-
-```json
-{
-  "detail": ["Phone number is already registered."]
-}
-```
-
-What frontend should store from response:
-
-- Store nothing long-term.
-- In development only, `debug_otp` can be shown or used for testing.
-
-### POST `/api/auth/patient/register/`
-
-Purpose: Self-register a patient account using phone number, password, and OTP.
-
-Required auth: None.
-
-Headers:
+### Pharmacist Registration OTP
 
 ```text
-Content-Type: application/json
+POST /api/auth/pharmacist/register/request-otp/
 ```
 
-Request body example:
+Same request and response shape as patient registration OTP.
+
+### Generic Registration OTP
+
+```text
+POST /api/auth/register/request-otp/
+```
+
+Patient request:
 
 ```json
 {
-  "full_name": "Patient One",
-  "phone_number": "0999999999",
+  "role": "patient",
+  "phone_number": "0999000001"
+}
+```
+
+Pharmacist request:
+
+```json
+{
+  "role": "pharmacist",
+  "phone_number": "0999000002"
+}
+```
+
+## Patient Registration
+
+```text
+POST /api/auth/patient/register/
+```
+
+Request:
+
+```json
+{
+  "full_name": "Test Patient",
+  "phone_number": "0999000001",
   "password": "StrongPass123!",
   "otp": "123456"
 }
 ```
 
-Aliases:
+Optional fields:
 
-```json
-{
-  "name": "Patient One",
-  "phone": "0999999999",
-  "password": "StrongPass123!",
-  "otp": "123456"
-}
-```
-
-Optional email:
-
-```json
-{
-  "full_name": "Patient One",
-  "phone_number": "0999999999",
-  "email": "patient@example.com",
-  "password": "StrongPass123!",
-  "confirm_password": "StrongPass123!",
-  "otp": "123456"
-}
-```
-
-Additional accepted patient fields:
-
+- `email`
+- `confirm_password`
 - `birth_date`
 - `gender`
 - `address`
 - `hearing_disability_level`
 - `record_access_pin`
-- `national_id` is accepted but not persisted in the current profile response.
 
-Success response example:
+Accepted aliases:
 
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999999999",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient One",
-    "national_id": "",
-    "blood_type": "",
-    "allergies": "",
-    "chronic_conditions": "",
-    "regular_medications": "",
-    "is_pregnant": false
-  },
-  "access": "access.jwt.token",
-  "refresh": "refresh.jwt.token"
-}
-```
+- `name` instead of `full_name`
+- `phone` instead of `phone_number`
 
-Common error response examples:
-
-```json
-{
-  "otp": ["This field is required."]
-}
-```
-
-```json
-{
-  "detail": ["Invalid OTP."]
-}
-```
-
-```json
-{
-  "detail": ["OTP has expired."]
-}
-```
-
-```json
-{
-  "phone_number": ["A user with this phone number already exists."]
-}
-```
-
-What frontend should store from response:
-
-- Store `access` as `patient_access_token`.
-- Store `refresh` securely.
-- Store `user` and `profile` for UI state.
-
-### POST `/api/auth/pharmacist/register/`
-
-Purpose: Register a pharmacist account and associated pharmacy.
-
-Required auth: None.
-
-Headers:
+Success response:
 
 ```text
-Content-Type: application/json
+201 Created
 ```
-
-Request body example:
 
 ```json
 {
-  "full_name": "Pharmacist One",
-  "phone_number": "0988888888",
-  "email": "pharmacist@example.com",
-  "password": "StrongPass123!",
-  "license_number": "LIC-123",
-  "pharmacy_name": "PharmaSign Pharmacy",
-  "pharmacy_address": "Damascus"
+  "detail": "Registration request submitted successfully. Your account is pending organization approval.",
+  "approval_status": "pending",
+  "user": {
+    "id": 13,
+    "email": null,
+    "phone_number": "0999000001",
+    "role": "patient",
+    "is_active": true,
+    "is_verified": false,
+    "approval_status": "pending"
+  },
+  "profile": {
+    "id": 6,
+    "full_name": "Test Patient"
+  }
 }
 ```
 
-Aliases:
+Important:
 
-- `name` for `full_name`
-- `phone` for `phone_number`
-- `license_id` for `license_number`
+- No `access` token is returned.
+- No `refresh` token is returned.
+- Frontend should navigate to a pending approval screen.
+
+## Pharmacist Registration
+
+```text
+POST /api/auth/pharmacist/register/
+```
+
+Request:
+
+```json
+{
+  "full_name": "Test Pharmacist",
+  "phone_number": "0999000002",
+  "password": "StrongPass123!",
+  "license_number": "LIC-TEST-0002",
+  "pharmacy_name": "Test Pharmacy",
+  "pharmacy_address": "Damascus",
+  "otp": "123456"
+}
+```
 
 Optional fields:
 
+- `email`
 - `confirm_password`
 - `pharmacy_phone_number`
 - `latitude`
 - `longitude`
 
-Success response example:
+Accepted aliases:
 
-```json
-{
-  "user": {
-    "id": 2,
-    "email": "pharmacist@example.com",
-    "phone_number": "0988888888",
-    "role": "pharmacist",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Pharmacist One",
-    "license_number": "LIC-123",
-    "is_approved": false,
-    "pharmacy": {
-      "id": 1,
-      "name": "PharmaSign Pharmacy",
-      "address": "Damascus",
-      "phone": "",
-      "lat": null,
-      "lng": null,
-      "has_sign_service": true
-    }
-  },
-  "access": "access.jwt.token",
-  "refresh": "refresh.jwt.token"
-}
-```
+- `name` instead of `full_name`
+- `phone` instead of `phone_number`
+- `license_id` instead of `license_number`
 
-Common error response examples:
-
-```json
-{
-  "email": ["A user with this email already exists."]
-}
-```
-
-```json
-{
-  "license_number": ["This field is required."]
-}
-```
-
-What frontend should store from response:
-
-- Store `access` as `pharmacist_access_token`.
-- Store `refresh` securely.
-- Store `profile.is_approved` to control pharmacist workflow access.
-
-### POST `/api/auth/patient/qr-login/`
-
-Purpose: Patient login using Patient Login QR.
-
-Required auth: None.
-
-Headers:
+Success response:
 
 ```text
-Content-Type: application/json
+201 Created
 ```
-
-Request body example:
 
 ```json
 {
-  "qr_token": "opaque-patient-login-qr-token"
+  "detail": "Registration request submitted successfully. Your account is pending organization approval.",
+  "approval_status": "pending",
+  "user": {
+    "id": 14,
+    "email": null,
+    "phone_number": "0999000002",
+    "role": "pharmacist",
+    "is_active": true,
+    "is_verified": false,
+    "approval_status": "pending"
+  },
+  "profile": {
+    "id": 3,
+    "full_name": "Test Pharmacist",
+    "license_number": "LIC-TEST-0002",
+    "is_approved": false
+  }
 }
 ```
 
-Legacy fallback also exists:
+Important:
+
+- No `access` token is returned.
+- No `refresh` token is returned.
+- Frontend should navigate to a pending approval screen.
+
+## Login
+
+```text
+POST /api/auth/login/
+```
+
+Request:
 
 ```json
 {
-  "qr_code_value": "legacy-static-qr-value",
-  "pin": "1234"
+  "phone_number": "0999000001",
+  "password": "StrongPass123!"
 }
 ```
 
-Success response example:
+Accepted alias:
+
+```json
+{
+  "phone": "0999000001",
+  "password": "StrongPass123!"
+}
+```
+
+Email login may still work for compatibility, but frontend should use `phone_number`.
+
+Patient login success:
+
+```text
+200 OK
+```
 
 ```json
 {
   "user": {
-    "id": 1,
+    "id": 13,
     "email": null,
-    "phone_number": "0999999999",
+    "phone_number": "0999000001",
     "role": "patient",
     "is_active": true,
-    "is_verified": false
+    "is_verified": true,
+    "approval_status": "approved"
   },
   "profile": {
-    "id": 1,
-    "full_name": "Patient One",
+    "id": 6,
+    "full_name": "Test Patient",
     "national_id": "",
     "blood_type": "",
     "allergies": "",
@@ -660,60 +333,316 @@ Success response example:
     "regular_medications": "",
     "is_pregnant": false
   },
-  "access": "access.jwt.token",
-  "refresh": "refresh.jwt.token"
+  "access": "<access_token>",
+  "refresh": "<refresh_token>"
 }
 ```
 
-Common error response examples:
+Pending login:
 
-```json
-{
-  "detail": ["QR token is required."]
-}
-```
-
-```json
-{
-  "detail": ["Invalid QR token."]
-}
+```text
+403 Forbidden
 ```
 
 ```json
 {
-  "detail": ["QR token has been revoked."]
+  "detail": "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة.",
+  "approval_status": "pending"
 }
 ```
 
-What frontend should store from response:
+Rejected login:
 
-- Store `access` as `patient_access_token`.
-- Store `refresh` securely.
-- Do not store the QR token as an access token.
+```text
+403 Forbidden
+```
 
-## 5. Patient APIs
+```json
+{
+  "detail": "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة.",
+  "approval_status": "rejected",
+  "rejection_reason": "..."
+}
+```
 
-### GET `/api/patients/me/`
+Invalid credentials:
 
-Purpose: Get current patient's editable profile view.
+```text
+400 Bad Request
+```
 
-Required role: `patient`.
+```json
+{
+  "detail": ["Invalid credentials."]
+}
+```
 
-Required token: `patient_access_token`.
+Important:
 
-Headers:
+- Login never uses OTP.
+- Tokens are returned only after approval.
+- Pharmacist can log in only if `user.approval_status = "approved"` and `PharmacistProfile.is_approved = true`.
+
+## Refresh Token
+
+```text
+POST /api/auth/refresh/
+```
+
+Request:
+
+```json
+{
+  "refresh": "<refresh_token>"
+}
+```
+
+Success:
+
+```json
+{
+  "access": "<new_access_token>"
+}
+```
+
+If the user is pending, rejected, or inactive, refresh is blocked and does not return a new access token.
+
+Pending refresh response:
+
+```text
+403 Forbidden
+```
+
+```json
+{
+  "detail": "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة.",
+  "approval_status": "pending"
+}
+```
+
+Rejected refresh response:
+
+```text
+403 Forbidden
+```
+
+```json
+{
+  "detail": "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة.",
+  "approval_status": "rejected",
+  "rejection_reason": "..."
+}
+```
+
+## Current User
+
+```text
+GET /api/auth/me/
+```
+
+Auth:
+
+```text
+Authorization: Bearer <access_token>
+```
+
+Success returns:
+
+```json
+{
+  "user": {
+    "id": 13,
+    "email": null,
+    "phone_number": "0999000001",
+    "role": "patient",
+    "is_active": true,
+    "is_verified": true,
+    "approval_status": "approved"
+  },
+  "profile": {
+    "id": 6,
+    "full_name": "Test Patient",
+    "national_id": "",
+    "blood_type": "",
+    "allergies": "",
+    "chronic_conditions": "",
+    "regular_medications": "",
+    "is_pregnant": false
+  }
+}
+```
+
+If user becomes rejected after token was issued, old access token is blocked:
+
+```text
+403 Forbidden
+```
+
+```json
+{
+  "detail": "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة.",
+  "approval_status": "rejected",
+  "rejection_reason": "..."
+}
+```
+
+## Logout And Change Password
+
+### Logout
+
+```text
+POST /api/auth/logout/
+```
+
+Auth required.
+
+Request:
+
+```json
+{
+  "refresh": "<refresh_token>"
+}
+```
+
+Success:
+
+```json
+{
+  "detail": "Logged out successfully."
+}
+```
+
+### Change Password
+
+```text
+POST /api/auth/change-password/
+```
+
+Auth required.
+
+Request:
+
+```json
+{
+  "current_password": "OldPass123!",
+  "new_password": "NewStrongPass123!",
+  "confirm_password": "NewStrongPass123!"
+}
+```
+
+Success:
+
+```json
+{
+  "detail": "Password changed successfully."
+}
+```
+
+## Admin And Organization Approval Endpoints
+
+Use:
+
+```text
+Authorization: Bearer <admin_access_token>
+```
+
+### List Registration Requests
+
+```text
+GET /api/admin/registration-requests/
+```
+
+Returns pending patient/pharmacist registration requests visible to the current admin/organization staff user.
+
+### Approve User
+
+```text
+POST /api/admin/users/{user_id}/approve/
+```
+
+Response:
+
+```json
+{
+  "detail": "User approved successfully.",
+  "user": {
+    "id": 13,
+    "phone_number": "0999000001",
+    "role": "patient",
+    "approval_status": "approved"
+  }
+}
+```
+
+### Reject User
+
+```text
+POST /api/admin/users/{user_id}/reject/
+```
+
+Request:
+
+```json
+{
+  "reason": "Invalid documents"
+}
+```
+
+Response:
+
+```json
+{
+  "detail": "User rejected successfully.",
+  "user": {
+    "id": 13,
+    "phone_number": "0999000001",
+    "role": "patient",
+    "approval_status": "rejected"
+  }
+}
+```
+
+Approval permission rules:
+
+- Superuser/staff without organization staff profile can approve/reject all patient and pharmacist registrations.
+- Organization staff with `can_manage_patients` can approve/reject patient users only.
+- Organization staff with `can_manage_pharmacists` can approve/reject pharmacist users only.
+- If staff tries to approve/reject a role they do not manage, backend returns:
+
+```json
+{
+  "detail": "You do not have permission to approve this user role."
+}
+```
+
+Security behavior after rejection:
+
+- Old access tokens are blocked by centralized approval enforcement.
+- Refresh token cannot mint a new access token.
+- Pharmacist rejection sets `PharmacistProfile.is_approved = false`.
+
+## Patient Profile And Settings
+
+Use:
 
 ```text
 Authorization: Bearer <patient_access_token>
 ```
 
-Success response example:
+### Patient Profile
+
+```text
+GET /api/patients/me/
+PATCH /api/patients/me/
+```
+
+Profile response:
 
 ```json
 {
-  "id": 1,
-  "full_name": "Patient One",
-  "phone": "0999999999",
+  "id": 6,
+  "full_name": "Test Patient",
+  "phone": "0999000001",
   "national_id": "",
   "blood_type": "",
   "allergies": "",
@@ -725,100 +654,25 @@ Success response example:
 }
 ```
 
-Error response examples:
+Editable fields include:
 
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
+- `full_name`
+- `phone`
+- `allergies`
+- `chronic_conditions`
+- `regular_medications`
+- `is_pregnant`
+- `date_of_birth`
+- `gender`
 
-```json
-{
-  "detail": "You do not have permission to perform this action."
-}
-```
-
-Frontend notes:
-
-- Use only patient access token.
-- `national_id` and `blood_type` currently return empty strings in this endpoint.
-
-### PATCH `/api/patients/me/`
-
-Purpose: Update current patient's safe editable profile fields.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
+### Patient Settings
 
 ```text
-Authorization: Bearer <patient_access_token>
-Content-Type: application/json
+GET /api/patients/me/settings/
+PATCH /api/patients/me/settings/
 ```
 
-Body example:
-
-```json
-{
-  "full_name": "Patient One Updated",
-  "phone": "0999999999",
-  "allergies": "Penicillin",
-  "chronic_conditions": "Asthma",
-  "regular_medications": "Vitamin D",
-  "is_pregnant": false,
-  "date_of_birth": "1999-01-01",
-  "gender": "F"
-}
-```
-
-Success response example:
-
-```json
-{
-  "id": 1,
-  "full_name": "Patient One Updated",
-  "phone": "0999999999",
-  "national_id": "",
-  "blood_type": "",
-  "allergies": "Penicillin",
-  "chronic_conditions": "Asthma",
-  "regular_medications": "Vitamin D",
-  "is_pregnant": false,
-  "date_of_birth": "1999-01-01",
-  "gender": "F"
-}
-```
-
-Error response examples:
-
-```json
-{
-  "gender": ["\"X\" is not a valid choice."]
-}
-```
-
-Frontend notes:
-
-- Do not send `id`, `user`, `role`, `password`, `qr_code_value`, or PIN/hash fields.
-
-### GET `/api/patients/me/settings/`
-
-Purpose: Get persisted patient settings.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <patient_access_token>
-```
-
-Success response example:
+Settings response:
 
 ```json
 {
@@ -831,1075 +685,179 @@ Success response example:
 }
 ```
 
-Error response examples:
+Settings persist in the database.
 
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
+## Pharmacist Profile And Pharmacy
 
-Frontend notes:
-
-- Settings are persisted in the database.
-
-### PATCH `/api/patients/me/settings/`
-
-Purpose: Update persisted patient settings.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <patient_access_token>
-Content-Type: application/json
-```
-
-Body example:
-
-```json
-{
-  "notifications_enabled": false,
-  "prescription_reminders": true,
-  "dark_mode": true,
-  "use_biometrics": false
-}
-```
-
-Success response example:
-
-```json
-{
-  "notifications_enabled": false,
-  "prescription_reminders": true,
-  "dark_mode": true,
-  "use_biometrics": false,
-  "created_at": "2026-05-01T10:00:00Z",
-  "updated_at": "2026-05-01T10:05:00Z"
-}
-```
-
-Error response examples:
-
-```json
-{
-  "dark_mode": ["Must be a valid boolean."]
-}
-```
-
-Frontend notes:
-
-- Send only settings fields that need to change.
-
-### POST `/api/patients/me/session-qr/`
-
-Purpose: Generate a temporary Patient Session QR for pharmacist scanning.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <patient_access_token>
-Content-Type: application/json
-```
-
-Body example:
-
-```json
-{}
-```
-
-Success response example:
-
-```json
-{
-  "qr_token": "opaque-temporary-session-token",
-  "qr_payload": "opaque-temporary-session-token",
-  "expires_at": "2026-05-01T10:05:00Z",
-  "expires_in_seconds": 300
-}
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
-
-```json
-{
-  "detail": "You do not have permission to perform this action."
-}
-```
-
-Frontend notes:
-
-- Display `qr_payload` as QR image content.
-- Do not send this token in the `Authorization` header.
-- Do not store it long-term.
-- It expires after 5 minutes.
-- It is one-time use.
-- Generating a new session QR revokes previous active unused session QR tokens for the same patient.
-
-### GET `/api/patients/me/prescriptions/`
-
-Purpose: List prescriptions for the current patient.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <patient_access_token>
-```
-
-Success response example:
-
-```json
-[
-  {
-    "id": 1,
-    "patient": {
-      "id": 1,
-      "full_name": "Patient One"
-    },
-    "pharmacist": {
-      "id": 1,
-      "full_name": "Pharmacist One"
-    },
-    "pharmacy": {
-      "id": 1,
-      "name": "PharmaSign Pharmacy"
-    },
-    "doctor_name": "Doctor One",
-    "doctor_specialty": "",
-    "status": "draft",
-    "prescribed_at": "2026-05-01T10:00:00Z",
-    "delivered_at": null,
-    "notes": "",
-    "reused_from": null,
-    "created_at": "2026-05-01T10:00:00Z",
-    "updated_at": "2026-05-01T10:00:00Z",
-    "items": []
-  }
-]
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
-
-Frontend notes:
-
-- This endpoint is implemented.
-- Response uses the prescription serializer, including nested patient/pharmacist/pharmacy/items.
-
-### GET `/api/patients/me/prescriptions/{id}/`
-
-Purpose: Retrieve one prescription for the current patient.
-
-Required role: `patient`.
-
-Required token: `patient_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <patient_access_token>
-```
-
-Success response example:
-
-```json
-{
-  "id": 1,
-  "patient": {
-    "id": 1,
-    "full_name": "Patient One"
-  },
-  "pharmacist": {
-    "id": 1,
-    "full_name": "Pharmacist One"
-  },
-  "pharmacy": {
-    "id": 1,
-    "name": "PharmaSign Pharmacy"
-  },
-  "doctor_name": "Doctor One",
-  "doctor_specialty": "",
-  "status": "draft",
-  "prescribed_at": "2026-05-01T10:00:00Z",
-  "delivered_at": null,
-  "notes": "",
-  "reused_from": null,
-  "created_at": "2026-05-01T10:00:00Z",
-  "updated_at": "2026-05-01T10:00:00Z",
-  "items": []
-}
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "Not found."
-}
-```
-
-Frontend notes:
-
-- A patient can only retrieve prescriptions belonging to their own patient profile.
-
-## 6. Pharmacist APIs
-
-### GET `/api/pharmacist/me/`
-
-Purpose: Get current pharmacist profile.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
+Use:
 
 ```text
 Authorization: Bearer <pharmacist_access_token>
 ```
 
-Success response example:
-
-```json
-{
-  "id": 1,
-  "email": "pharmacist@example.com",
-  "phone_number": "0988888888",
-  "pharmacy": {
-    "id": 1,
-    "name": "PharmaSign Pharmacy",
-    "owner_user": 2,
-    "address": "Damascus",
-    "latitude": null,
-    "longitude": null,
-    "is_contracted_with_organization": false,
-    "organization": null,
-    "phone_number": "",
-    "created_at": "2026-05-01T10:00:00Z",
-    "updated_at": "2026-05-01T10:00:00Z"
-  },
-  "full_name": "Pharmacist One",
-  "license_number": "LIC-123",
-  "is_approved": true,
-  "created_at": "2026-05-01T10:00:00Z",
-  "updated_at": "2026-05-01T10:00:00Z"
-}
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "You do not have permission to perform this action."
-}
-```
-
-Frontend notes:
-
-- Use `is_approved` to decide whether pharmacist can start patient sessions.
-- Backward-compatible alias also exists: `GET /api/pharmacists/me/`.
-
-### PATCH `/api/pharmacist/me/`
-
-Purpose: Update current pharmacist profile and selected pharmacy fields.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
+### Pharmacist Profile
 
 ```text
-Authorization: Bearer <pharmacist_access_token>
-Content-Type: application/json
+GET /api/pharmacist/me/
+PATCH /api/pharmacist/me/
 ```
 
-Body example:
-
-```json
-{
-  "full_name": "Pharmacist One Updated",
-  "phone_number": "0988888888",
-  "license_number": "LIC-123",
-  "pharmacy_name": "Updated Pharmacy",
-  "pharmacy_address": "Damascus",
-  "pharmacy_phone_number": "011111111",
-  "latitude": "33.513800",
-  "longitude": "36.276500"
-}
-```
-
-Success response example:
-
-```json
-{
-  "id": 1,
-  "email": "pharmacist@example.com",
-  "phone_number": "0988888888",
-  "pharmacy": {
-    "id": 1,
-    "name": "Updated Pharmacy",
-    "owner_user": 2,
-    "address": "Damascus",
-    "latitude": "33.513800",
-    "longitude": "36.276500",
-    "is_contracted_with_organization": false,
-    "organization": null,
-    "phone_number": "011111111",
-    "created_at": "2026-05-01T10:00:00Z",
-    "updated_at": "2026-05-01T10:05:00Z"
-  },
-  "full_name": "Pharmacist One Updated",
-  "license_number": "LIC-123",
-  "is_approved": true,
-  "created_at": "2026-05-01T10:00:00Z",
-  "updated_at": "2026-05-01T10:05:00Z"
-}
-```
-
-Error response examples:
-
-```json
-{
-  "latitude": ["A valid number is required."]
-}
-```
-
-Frontend notes:
-
-- Do not send approval fields such as `is_approved`.
-- Backward-compatible alias also exists: `PATCH /api/pharmacists/me/`.
-
-### GET `/api/pharmacist/me/pharmacy/`
-
-Purpose: Get current pharmacist pharmacy in frontend-compatible shape.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
+Backward-compatible alias:
 
 ```text
-Authorization: Bearer <pharmacist_access_token>
+GET /api/pharmacists/me/
+PATCH /api/pharmacists/me/
 ```
 
-Success response example:
+Profile response includes pharmacist profile and nested pharmacy data.
+
+Editable fields include:
+
+- `full_name`
+- `license_number`
+- `phone_number`
+- `pharmacy_name`
+- `pharmacy_address`
+- `pharmacy_phone_number`
+- `latitude`
+- `longitude`
+
+### Pharmacist Pharmacy
+
+```text
+GET /api/pharmacist/me/pharmacy/
+PATCH /api/pharmacist/me/pharmacy/
+```
+
+Response:
 
 ```json
 {
   "id": 1,
-  "name": "PharmaSign Pharmacy",
+  "name": "Test Pharmacy",
   "address": "Damascus",
-  "phone": "011111111",
+  "phone": "",
   "lat": null,
   "lng": null,
   "has_sign_service": true
 }
 ```
 
-Error response examples:
+## Patient Login QR
 
-```json
-{
-  "detail": "You do not have permission to perform this action."
-}
-```
+Patient Login QR is different from Patient Session QR.
 
-Frontend notes:
-
-- This endpoint returns `phone`, `lat`, and `lng` aliases.
-
-### PATCH `/api/pharmacist/me/pharmacy/`
-
-Purpose: Update safe editable fields for current pharmacist pharmacy.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
+Admin generates login QR:
 
 ```text
-Authorization: Bearer <pharmacist_access_token>
-Content-Type: application/json
+POST /api/admin/patients/{patient_id}/login-qr/
 ```
 
-Body example:
-
-```json
-{
-  "name": "Updated Pharmacy",
-  "address": "Damascus",
-  "phone": "011111111",
-  "lat": "33.513800",
-  "lng": "36.276500",
-  "has_sign_service": true
-}
-```
-
-Success response example:
-
-```json
-{
-  "id": 1,
-  "name": "Updated Pharmacy",
-  "address": "Damascus",
-  "phone": "011111111",
-  "lat": "33.513800",
-  "lng": "36.276500",
-  "has_sign_service": true
-}
-```
-
-Error response examples:
-
-```json
-{
-  "lat": ["A valid number is required."]
-}
-```
-
-Frontend notes:
-
-- `has_sign_service` is accepted by the serializer but currently always represents as `true`.
-
-### POST `/api/pharmacist/sessions/start-by-qr/`
-
-Purpose: Start a temporary pharmacist-patient session by scanning Patient Session QR.
-
-Required role: approved `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
+Auth:
 
 ```text
-Authorization: Bearer <pharmacist_access_token>
-Content-Type: application/json
+Authorization: Bearer <admin_access_token>
 ```
 
-Body example:
+Response:
 
 ```json
 {
-  "qr_token": "opaque-temporary-session-token"
-}
-```
-
-Alias:
-
-```json
-{
-  "qr_payload": "opaque-temporary-session-token"
-}
-```
-
-Success response example:
-
-```json
-{
-  "session": {
-    "id": 12,
-    "status": "active",
-    "created_at": "2026-05-01T10:00:00Z",
-    "expires_at": "2026-05-01T10:30:00Z"
-  },
-  "patient": {
-    "id": 5,
-    "full_name": "Patient One",
-    "phone_number": "0999999999",
-    "blood_type": "",
-    "allergies": "Penicillin",
-    "chronic_conditions": "Asthma",
-    "regular_medications": "Vitamin D"
-  },
-  "pharmacist": {
-    "id": 2,
-    "full_name": "Pharmacist One"
-  },
-  "pharmacy": {
-    "id": 1,
-    "name": "PharmaSign Pharmacy"
-  }
-}
-```
-
-Error response examples:
-
-```json
-{
-  "qr_token": ["This field is required."]
-}
-```
-
-```json
-{
-  "detail": ["Invalid QR token."]
-}
-```
-
-```json
-{
-  "detail": ["QR token has expired."]
-}
-```
-
-```json
-{
-  "detail": ["This QR token has already been used."]
-}
-```
-
-```json
-{
-  "detail": ["This QR token has been revoked."]
-}
-```
-
-```json
-{
-  "detail": "Pharmacist account is not approved."
-}
-```
-
-Frontend notes:
-
-- Pharmacist scans Patient Session QR displayed by patient.
-- Send scanned QR string as `qr_token` or `qr_payload`.
-- Do not send scanned QR string as an auth token.
-- If an active unexpired session already exists for the same patient/pharmacist, backend returns the existing active session.
-
-### GET `/api/pharmacist/sessions/`
-
-Purpose: List sessions belonging to the authenticated pharmacist.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <pharmacist_access_token>
-```
-
-Success response example:
-
-```json
-[
-  {
-    "id": 12,
-    "status": "active",
-    "started_at": "2026-05-01T10:00:00Z",
-    "ended_at": null,
-    "expires_at": "2026-05-01T10:30:00Z",
-    "created_at": "2026-05-01T10:00:00Z",
-    "patient": {
-      "id": 5,
-      "full_name": "Patient One",
-      "phone_number": "0999999999",
-      "blood_type": "",
-      "allergies": "Penicillin",
-      "chronic_conditions": "Asthma",
-      "regular_medications": "Vitamin D"
-    },
-    "pharmacist": {
-      "id": 2,
-      "full_name": "Pharmacist One"
-    },
-    "pharmacy": {
-      "id": 1,
-      "name": "PharmaSign Pharmacy"
-    }
-  }
-]
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "You do not have permission to perform this action."
-}
-```
-
-Frontend notes:
-
-- Returns only sessions owned by the authenticated pharmacist.
-
-### GET `/api/pharmacist/sessions/?status=active`
-
-Purpose: List authenticated pharmacist sessions filtered by status.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <pharmacist_access_token>
-```
-
-Success response example:
-
-```json
-[
-  {
-    "id": 12,
-    "status": "active",
-    "started_at": "2026-05-01T10:00:00Z",
-    "ended_at": null,
-    "expires_at": "2026-05-01T10:30:00Z",
-    "created_at": "2026-05-01T10:00:00Z",
-    "patient": {
-      "id": 5,
-      "full_name": "Patient One",
-      "phone_number": "0999999999",
-      "blood_type": "",
-      "allergies": "Penicillin",
-      "chronic_conditions": "Asthma",
-      "regular_medications": "Vitamin D"
-    },
-    "pharmacist": {
-      "id": 2,
-      "full_name": "Pharmacist One"
-    },
-    "pharmacy": {
-      "id": 1,
-      "name": "PharmaSign Pharmacy"
-    }
-  }
-]
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "Authentication credentials were not provided."
-}
-```
-
-Frontend notes:
-
-- Supported statuses are `active`, `completed`, `cancelled`, and `expired`.
-
-### POST `/api/pharmacist/sessions/{session_id}/end/`
-
-Purpose: End a pharmacist-owned patient session.
-
-Required role: `pharmacist`.
-
-Required token: `pharmacist_access_token`.
-
-Headers:
-
-```text
-Authorization: Bearer <pharmacist_access_token>
-Content-Type: application/json
-```
-
-Body example:
-
-```json
-{}
-```
-
-Success response example:
-
-```json
-{
-  "detail": "Session ended successfully."
-}
-```
-
-Error response examples:
-
-```json
-{
-  "detail": "Not found."
-}
-```
-
-Frontend notes:
-
-- A pharmacist cannot end another pharmacist's session.
-- Backend sets session status to `completed`.
-
-## 7. Admin / Organization APIs
-
-### POST `/api/admin/patients/create-account/`
-
-Purpose: Admin/organization creates a patient account without OTP.
-
-Required role: admin or organization staff with patient-management permission.
-
-Required token: admin/organization access token.
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-Body example:
-
-```json
-{
-  "full_name": "Patient Created By Organization",
-  "phone_number": "0999111222",
-  "password": "OptionalStrongPass123!",
-  "national_id": "optional",
-  "date_of_birth": "1999-01-01",
-  "gender": "F",
-  "blood_type": "A+",
-  "allergies": "Penicillin",
-  "chronic_conditions": "Asthma",
-  "regular_medications": "Vitamin D",
-  "notes": "optional"
-}
-```
-
-Success response example:
-
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999111222",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": true
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient Created By Organization",
-    "national_id": "optional",
-    "blood_type": "A+",
-    "allergies": "Penicillin",
-    "chronic_conditions": "Asthma",
-    "regular_medications": "Vitamin D",
-    "is_pregnant": false
-  },
-  "temporary_password_generated": false
-}
-```
-
-If `password` is omitted, response includes one-time `temporary_password`:
-
-```json
-{
-  "temporary_password_generated": true,
-  "temporary_password": "generated-password"
-}
-```
-
-Notes:
-
-- Normal patients and pharmacists cannot call this endpoint.
-- OTP is not required for admin/organization-created patient accounts.
-- If a temporary password is returned, it should be delivered securely.
-
-### POST `/api/admin/patients/{patient_id}/login-qr/`
-
-Purpose: Generate or rotate Patient Login QR for a patient account.
-
-Required role: admin or organization staff with patient-management permission.
-
-Required token: admin/organization access token.
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-Body example:
-
-```json
-{}
-```
-
-Success response example:
-
-```json
-{
-  "patient_id": 1,
-  "qr_token": "opaque-patient-login-token",
-  "qr_payload": "opaque-patient-login-token",
+  "patient_id": 6,
+  "qr_token": "<qr_token>",
+  "qr_payload": "<qr_token>",
   "is_active": true,
   "created_at": "2026-05-01T10:00:00Z",
   "revoked_at": null
 }
 ```
 
-Notes:
-
-- This token is for Patient Login QR only.
-- This token is not used to open pharmacist sessions.
-- Backend stores only a token hash.
-
-### POST `/api/admin/patients/{patient_id}/login-qr/revoke/`
-
-Purpose: Revoke active Patient Login QR tokens for a patient account.
-
-Required role: admin or organization staff with patient-management permission.
-
-Required token: admin/organization access token.
-
-Headers:
+Admin revokes login QR:
 
 ```text
-Authorization: Bearer <access_token>
-Content-Type: application/json
+POST /api/admin/patients/{patient_id}/login-qr/revoke/
 ```
 
-Body example:
+Patient logs in with QR:
 
-```json
-{}
+```text
+POST /api/auth/patient/qr-login/
 ```
 
-Success response example:
+Request:
 
 ```json
 {
-  "patient_id": 1,
-  "is_active": false
+  "qr_token": "<qr_token>"
 }
 ```
 
-Notes:
+Important:
 
-- After revocation, QR login with that token should fail.
+- `qr_token` is sent in body only.
+- `qr_token` is not sent in the `Authorization` header.
+- Pending/rejected patient cannot log in with QR.
+- Approved patient can log in with QR.
+- QR login returns `access` and `refresh` only if the patient is approved.
 
-## 8. QR Flow Explanation
+## Patient Session QR
 
-### Patient Login QR
+Patient Session QR is different from Patient Login QR.
 
-- Endpoint: `POST /api/auth/patient/qr-login/`
-- Used by patient to log into their account.
-- Token source: admin/organization generated Patient Login QR.
-- Admin/organization generates it with `POST /api/admin/patients/{patient_id}/login-qr/`.
-- This is NOT used to open pharmacist sessions.
-- This QR token is sent in the request body as `qr_token`.
-- This QR token is not sent in the `Authorization` header.
+Patient generates temporary session QR:
 
-### Patient Session QR
-
-- Endpoint to generate QR: `POST /api/patients/me/session-qr/`
-- Generated by logged-in patient using patient access token.
-- Displayed on patient app screen as QR image using `qr_payload`.
-- Pharmacist scans this QR.
-- Pharmacist sends scanned value to:
-  `POST /api/pharmacist/sessions/start-by-qr/`
-- Pharmacist uses pharmacist access token.
-- Pharmacist does not have a QR code in Phase 2.
-- This QR expires after 5 minutes and is one-time use.
-- This QR token is sent in the request body as `qr_token` or `qr_payload`.
-- This QR token is not sent in the `Authorization` header.
-
-## 9. Correct Frontend Flows
-
-### Patient registration flow
-
-1. Patient enters phone number.
-2. Frontend calls `POST /api/auth/patient/register/request-otp/`.
-3. During development, frontend may read `debug_otp` when `DEBUG=True`.
-4. Patient submits name, phone number, password, and OTP.
-5. Frontend calls `POST /api/auth/patient/register/`.
-6. Backend returns `user`, `profile`, `access`, and `refresh`.
-7. Frontend stores `access` as patient access token and stores `refresh` securely.
-
-### Patient login flow
-
-1. Patient enters phone number or email and password.
-2. Frontend calls `POST /api/auth/login/`.
-3. Backend returns normalized auth response.
-4. Frontend checks `user.role === "patient"`.
-5. Frontend stores access/refresh tokens securely.
-
-### Patient show QR for pharmacist flow
-
-1. Patient logs in.
-2. Patient calls `POST /api/patients/me/session-qr/` with patient access token.
-3. Frontend converts `qr_payload` to QR image.
-4. Patient shows QR screen.
-5. QR expires after 5 minutes.
-
-### Pharmacist scan patient QR flow
-
-1. Pharmacist logs in.
-2. Ensure user role is `pharmacist`.
-3. Ensure `is_approved` is `true` if available in profile.
-4. Pharmacist scans patient QR.
-5. Frontend sends scanned value to `POST /api/pharmacist/sessions/start-by-qr/`.
-6. Store/use `session.id` for prescription workflow.
-7. Navigate with returned patient summary.
-
-### Pharmacist session management flow
-
-1. Pharmacist logs in.
-2. Frontend calls `GET /api/pharmacist/sessions/` to list sessions.
-3. Frontend may call `GET /api/pharmacist/sessions/?status=active` to show only active sessions.
-4. Pharmacist opens a session detail in the UI using returned session and patient summary.
-5. Pharmacist ends a session with `POST /api/pharmacist/sessions/{session_id}/end/`.
-6. Backend returns `{"detail": "Session ended successfully."}`.
-
-## 10. Error Reference
-
-| Situation | Example response | Frontend action |
-| --- | --- | --- |
-| 400 missing field | `{"phone_number": ["This field is required."]}` | Highlight the missing field and ask user to complete it. |
-| 401 missing/invalid token | `{"detail": "Authentication credentials were not provided."}` | Send user to login or refresh token if possible. |
-| 403 wrong role | `{"detail": "You do not have permission to perform this action."}` | Stop the action and route user to correct role area. |
-| 403 pharmacist not approved | `{"detail": "Pharmacist account is not approved."}` | Show approval-pending state; do not allow session/prescription workflow. |
-| Invalid QR | `{"detail": ["Invalid QR token."]}` | Ask user to scan/generate a valid QR again. |
-| Expired QR | `{"detail": ["QR token has expired."]}` | Ask patient to generate a new Patient Session QR. |
-| Already used QR | `{"detail": ["This QR token has already been used."]}` | Ask patient to generate a new Patient Session QR. |
-| Revoked QR | `{"detail": ["This QR token has been revoked."]}` | Ask patient/admin to generate a valid QR again. |
-| Invalid credentials | `{"detail": ["Invalid credentials."]}` | Show login error without revealing which field is wrong. |
-| Invalid OTP | `{"detail": ["Invalid OTP."]}` | Ask user to retry OTP or request a new OTP. |
-
-## 11. Response Shape Reference
-
-### Login response
-
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999999999",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient One",
-    "national_id": "",
-    "blood_type": "",
-    "allergies": "",
-    "chronic_conditions": "",
-    "regular_medications": "",
-    "is_pregnant": false
-  },
-  "access": "access.jwt.token",
-  "refresh": "refresh.jwt.token"
-}
+```text
+POST /api/patients/me/session-qr/
 ```
 
-### Current user response
+Auth:
 
-```json
-{
-  "user": {
-    "id": 1,
-    "email": null,
-    "phone_number": "0999999999",
-    "role": "patient",
-    "is_active": true,
-    "is_verified": false
-  },
-  "profile": {
-    "id": 1,
-    "full_name": "Patient One",
-    "national_id": "",
-    "blood_type": "",
-    "allergies": "",
-    "chronic_conditions": "",
-    "regular_medications": "",
-    "is_pregnant": false
-  }
-}
+```text
+Authorization: Bearer <patient_access_token>
 ```
 
-### Patient profile
+Response:
 
 ```json
 {
-  "id": 1,
-  "full_name": "Patient One",
-  "phone": "0999999999",
-  "national_id": "",
-  "blood_type": "",
-  "allergies": "",
-  "chronic_conditions": "",
-  "regular_medications": "",
-  "is_pregnant": false,
-  "date_of_birth": null,
-  "gender": ""
-}
-```
-
-### Pharmacist profile
-
-```json
-{
-  "id": 1,
-  "email": "pharmacist@example.com",
-  "phone_number": "0988888888",
-  "pharmacy": {
-    "id": 1,
-    "name": "PharmaSign Pharmacy",
-    "owner_user": 2,
-    "address": "Damascus",
-    "latitude": null,
-    "longitude": null,
-    "is_contracted_with_organization": false,
-    "organization": null,
-    "phone_number": "",
-    "created_at": "2026-05-01T10:00:00Z",
-    "updated_at": "2026-05-01T10:00:00Z"
-  },
-  "full_name": "Pharmacist One",
-  "license_number": "LIC-123",
-  "is_approved": true,
-  "created_at": "2026-05-01T10:00:00Z",
-  "updated_at": "2026-05-01T10:00:00Z"
-}
-```
-
-### Session QR response
-
-```json
-{
-  "qr_token": "opaque-temporary-session-token",
-  "qr_payload": "opaque-temporary-session-token",
+  "qr_token": "<temporary_session_qr>",
+  "qr_payload": "<temporary_session_qr>",
   "expires_at": "2026-05-01T10:05:00Z",
   "expires_in_seconds": 300
 }
 ```
 
-### Start session by QR response
+Frontend should display `qr_payload` as the QR image content.
+
+Pharmacist starts session:
+
+```text
+POST /api/pharmacist/sessions/start-by-qr/
+```
+
+Auth:
+
+```text
+Authorization: Bearer <pharmacist_access_token>
+```
+
+Request:
+
+```json
+{
+  "qr_token": "<temporary_session_qr>"
+}
+```
+
+Alternative field:
+
+```json
+{
+  "qr_payload": "<temporary_session_qr>"
+}
+```
+
+Success response:
 
 ```json
 {
@@ -1910,88 +868,241 @@ Notes:
     "expires_at": "2026-05-01T10:30:00Z"
   },
   "patient": {
-    "id": 5,
-    "full_name": "Patient One",
-    "phone_number": "0999999999",
-    "blood_type": "",
-    "allergies": "Penicillin",
-    "chronic_conditions": "Asthma",
-    "regular_medications": "Vitamin D"
+    "id": 6,
+    "full_name": "Test Patient",
+    "phone_number": "0999000001",
+    "gender": "",
+    "birth_date": null
   },
+  "medical_info": {
+    "blood_type": "",
+    "allergies": "",
+    "chronic_conditions": "",
+    "regular_medications": "",
+    "is_pregnant": false,
+    "is_breastfeeding": false
+  },
+  "recent_prescriptions": [],
   "pharmacist": {
-    "id": 2,
-    "full_name": "Pharmacist One"
+    "id": 3,
+    "full_name": "Test Pharmacist"
   },
   "pharmacy": {
     "id": 1,
-    "name": "PharmaSign Pharmacy"
+    "name": "Test Pharmacy"
   }
 }
 ```
 
-### Pharmacist session list item
+List sessions:
+
+```text
+GET /api/pharmacist/sessions/
+GET /api/pharmacist/sessions/?status=active
+```
+
+End session:
+
+```text
+POST /api/pharmacist/sessions/{session_id}/end/
+```
+
+Important:
+
+- Session QR is one-time use.
+- Session QR expires.
+- Only approved pharmacists can start, list, and end sessions.
+- `qr_token` is sent in body only.
+
+## Prescriptions
+
+Frontend should use only the intended MVP prescription routes.
+
+### Pharmacist Routes
+
+Use:
+
+```text
+Authorization: Bearer <pharmacist_access_token>
+```
+
+```text
+POST /api/pharmacist/prescriptions/
+GET /api/pharmacist/prescriptions/
+GET /api/pharmacist/prescriptions/{prescription_id}/
+PATCH /api/pharmacist/prescriptions/{prescription_id}/
+POST /api/pharmacist/prescriptions/{prescription_id}/items/
+PATCH /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
+DELETE /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/
+POST /api/pharmacist/prescriptions/{prescription_id}/submit/
+```
+
+Create prescription request:
 
 ```json
 {
-  "id": 12,
-  "status": "active",
-  "started_at": "2026-05-01T10:00:00Z",
-  "ended_at": null,
-  "expires_at": "2026-05-01T10:30:00Z",
-  "created_at": "2026-05-01T10:00:00Z",
-  "patient": {
-    "id": 5,
-    "full_name": "Patient One",
-    "phone_number": "0999999999",
-    "blood_type": "",
-    "allergies": "Penicillin",
-    "chronic_conditions": "Asthma",
-    "regular_medications": "Vitamin D"
-  },
-  "pharmacist": {
-    "id": 2,
-    "full_name": "Pharmacist One"
-  },
-  "pharmacy": {
-    "id": 1,
-    "name": "PharmaSign Pharmacy"
-  }
+  "session_id": 12,
+  "patient_id": 6,
+  "doctor_name": "Dr. Ahmad",
+  "diagnosis": "Flu",
+  "notes": "Take medicines after food",
+  "items": [
+    {
+      "medicine_name": "Paracetamol",
+      "dosage": "500mg",
+      "frequency": "3 times daily",
+      "duration": "5 days",
+      "instructions_text": "Take one tablet after food three times a day"
+    }
+  ]
 }
 ```
 
-### End session response
+Important:
+
+- Creating a prescription requires a valid active `session_id`.
+- The session must belong to the authenticated pharmacist.
+- The `patient_id` must match the session patient.
+- Submitted prescriptions are visible to the patient.
+
+### Patient Routes
+
+Use:
+
+```text
+Authorization: Bearer <patient_access_token>
+```
+
+```text
+GET /api/patients/me/prescriptions/
+GET /api/patients/me/prescriptions/{prescription_id}/
+```
+
+By default, patient prescription list returns submitted prescriptions.
+
+### Legacy Prescription Route Warning
+
+Frontend must not use:
+
+```text
+POST /api/prescriptions/
+```
+
+Legacy create is blocked and returns:
 
 ```json
 {
-  "detail": "Session ended successfully."
+  "detail": "Use /api/pharmacist/prescriptions/ with a valid active patient session to create prescriptions."
 }
 ```
 
-### API error response
+## Frontend Routing Guidance
 
-```json
-{
-  "detail": ["Invalid QR token."]
-}
+After registration success:
+
+- Do not store tokens.
+- Navigate to `PendingApproval` screen.
+- Show:
+
+```text
+حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة.
 ```
 
-Field validation errors can use field keys:
+After login pending response:
 
-```json
-{
-  "phone_number": ["This field is required."]
-}
-```
+- Navigate to or show `PendingApproval` screen.
 
-## 12. Important Warnings for Frontend
+After login rejected response:
 
-- Pharmacist has no QR code in Phase 2.
-- Patient Session QR appears only on the patient app.
-- Pharmacist scans patient QR and sends the scanned value to backend.
+- Show rejected message.
+- Show `rejection_reason` if present.
+- Do not store tokens.
+
+After successful login:
+
+- Store `access` and `refresh`.
+- Route by `user.role`:
+  - `patient` -> patient app
+  - `pharmacist` -> pharmacist app
+
+When access token expires:
+
+- Call `POST /api/auth/refresh/`.
+- If refresh returns pending/rejected/inactive, clear tokens and show the appropriate screen.
+
+When user logs out:
+
+- Call `POST /api/auth/logout/` with refresh token if available.
+- Clear local tokens regardless of logout response.
+
+## Endpoint Inventory
+
+| Method | Path | Auth | Role | Frontend use | Notes |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/api/auth/patient/register/request-otp/` | No | Public | Patient registration OTP | Returns `debug_otp` only in DEBUG |
+| POST | `/api/auth/pharmacist/register/request-otp/` | No | Public | Pharmacist registration OTP | Same shape as patient OTP |
+| POST | `/api/auth/register/request-otp/` | No | Public | Generic registration OTP | Requires `role` |
+| POST | `/api/auth/patient/register/` | No | Public | Patient registration | Returns pending response, no tokens |
+| POST | `/api/auth/pharmacist/register/` | No | Public | Pharmacist registration | Returns pending response, no tokens |
+| POST | `/api/auth/login/` | No | Public | Login after approval | Uses phone/password, no OTP |
+| POST | `/api/auth/refresh/` | No | Public with refresh token | Refresh access token | Blocks pending/rejected/inactive users |
+| GET | `/api/auth/me/` | Bearer | Any approved user | Load current user | Old tokens blocked after rejection |
+| POST | `/api/auth/logout/` | Bearer | Any approved user | Logout | Body contains refresh token |
+| POST | `/api/auth/change-password/` | Bearer | Any approved user | Change password | Requires current password |
+| GET | `/api/admin/registration-requests/` | Bearer | Admin/staff | Admin approval UI | Role-scoped for organization staff |
+| POST | `/api/admin/users/{user_id}/approve/` | Bearer | Admin/staff | Approve account | Pharmacist approval sets `is_approved=true` |
+| POST | `/api/admin/users/{user_id}/reject/` | Bearer | Admin/staff | Reject account | Rejection blocks old tokens |
+| GET/PATCH | `/api/patients/me/` | Bearer | Patient | Patient profile | Use patient token |
+| GET/PATCH | `/api/patients/me/settings/` | Bearer | Patient | Patient settings | Persists in DB |
+| POST | `/api/admin/patients/{patient_id}/login-qr/` | Bearer | Admin/staff | Generate patient login QR | Body result has `qr_token` |
+| POST | `/api/admin/patients/{patient_id}/login-qr/revoke/` | Bearer | Admin/staff | Revoke login QR | Revokes active login QR |
+| POST | `/api/auth/patient/qr-login/` | No | Public | Patient login by QR | Body contains `qr_token` |
+| POST | `/api/patients/me/session-qr/` | Bearer | Patient | Generate temporary session QR | One-time, expires in 300s |
+| POST | `/api/pharmacist/sessions/start-by-qr/` | Bearer | Approved pharmacist | Start patient session | Body contains session QR |
+| GET | `/api/pharmacist/sessions/` | Bearer | Approved pharmacist | List sessions | Optional `status` query |
+| POST | `/api/pharmacist/sessions/{session_id}/end/` | Bearer | Approved pharmacist | End session | Own sessions only |
+| GET/PATCH | `/api/pharmacist/me/` | Bearer | Pharmacist | Pharmacist profile | Use pharmacist token |
+| GET/PATCH | `/api/pharmacist/me/pharmacy/` | Bearer | Pharmacist | Pharmacist pharmacy | Use pharmacist token |
+| POST | `/api/pharmacist/prescriptions/` | Bearer | Approved pharmacist | Create prescription | Requires valid active session |
+| GET | `/api/pharmacist/prescriptions/` | Bearer | Pharmacist | List pharmacist prescriptions | Own prescriptions |
+| GET/PATCH | `/api/pharmacist/prescriptions/{prescription_id}/` | Bearer | Pharmacist | Retrieve/update draft | Update requires approved pharmacist |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/` | Bearer | Approved pharmacist | Add item | Draft only |
+| PATCH/DELETE | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/` | Bearer | Approved pharmacist | Update/delete item | Draft only |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/` | Bearer | Approved pharmacist | Audio transcription | Draft only |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/submit/` | Bearer | Approved pharmacist | Submit prescription | Requires at least one item |
+| GET | `/api/patients/me/prescriptions/` | Bearer | Patient | Patient prescription list | Submitted by default |
+| GET | `/api/patients/me/prescriptions/{prescription_id}/` | Bearer | Patient | Patient prescription detail | Own prescriptions only |
+| POST | `/api/prescriptions/` | Bearer | Deprecated | Do not use | Blocked |
+
+## Error Reference
+
+| Situation | Response | Frontend action |
+| --- | --- | --- |
+| Pending account | `{"detail": "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة.", "approval_status": "pending"}` | Show pending approval screen |
+| Rejected account | `{"detail": "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة.", "approval_status": "rejected", "rejection_reason": "..."}` | Show rejected screen/reason |
+| Inactive account | `{"detail": "User account is inactive."}` | Clear tokens and show login/support state |
+| Missing/invalid auth | `{"detail": "Authentication credentials were not provided."}` | Try refresh or send to login |
+| Wrong role | `{"detail": "You do not have permission to perform this action."}` | Route to correct role area |
+| Invalid credentials | `{"detail": ["Invalid credentials."]}` | Show login error |
+| Invalid OTP | `{"detail": ["Invalid OTP."]}` | Ask user to retry or request new OTP |
+| Expired OTP | `{"detail": ["OTP has expired."]}` | Ask user to request new OTP |
+| Invalid QR | `{"detail": ["Invalid QR token."]}` | Ask user to scan/generate again |
+| Expired session QR | `{"detail": ["QR token has expired."]}` | Ask patient to generate a new session QR |
+| Used session QR | `{"detail": ["This QR token has already been used."]}` | Ask patient to generate a new session QR |
+| Revoked QR | `{"detail": ["This QR token has been revoked."]}` | Ask patient/admin to generate a valid QR |
+
+## Important Frontend Warnings
+
+- Registration does not return tokens.
+- Patient cannot log in immediately after registration.
+- Pharmacist cannot log in immediately after registration.
+- Login never uses OTP.
+- Store tokens only after successful approved login or approved QR login.
+- `qr_token` never goes in the `Authorization` header.
 - Patient Login QR and Patient Session QR are different.
-- `qr_token` is not an access token.
-- Do not store Patient Session QR long-term.
-- Same Patient Session QR cannot be reused.
-- Patient Session QR expires after 5 minutes.
-- Use patient access token only for patient endpoints.
-- Use pharmacist access token only for pharmacist endpoints.
+- Patient Session QR is one-time use and expires after 300 seconds.
+- Only approved pharmacists can start, list, and end sessions.
+- Frontend must not use legacy `POST /api/prescriptions/`.
+- Use `/api/pharmacist/prescriptions/` with a valid active `session_id` to create prescriptions.
+- If refresh returns pending/rejected/inactive, clear local tokens immediately.
