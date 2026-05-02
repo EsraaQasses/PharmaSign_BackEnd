@@ -1,99 +1,76 @@
-import os
+import mimetypes
+
 from django.conf import settings
 
 from .exceptions import AudioTranscriptionError, sanitize_transcription_error
 
 
-PROVIDER_GROQ = "groq"
-GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
-PROVIDER_NAMES = {
-    PROVIDER_GROQ: "groq_whisper",
-}
+STRICT_PHARMACY_TRANSCRIPTION_PROMPT = (
+    "Transcribe the Arabic pharmacy instruction audio exactly. "
+    "Return only the spoken text. Do not summarize. Do not translate. "
+    "Do not add explanations. Preserve medication names and numbers as spoken."
+)
 
 
-class TranscriptionError(Exception):
+class TranscriptionError(AudioTranscriptionError):
     pass
 
 
-def get_transcription_provider():
-    return str(settings.TRANSCRIPTION_PROVIDER).strip().lower()
+def transcribe_audio_file(file_path: str, mime_type: str | None = None) -> dict:
+    text = transcribe_audio_file_with_gemini(file_path, mime_type=mime_type)
+    return {
+        "provider": "gemini",
+        "model": settings.GEMINI_MODEL,
+        "transcript": text,
+    }
 
 
-def get_transcription_provider_name():
-    return PROVIDER_NAMES.get(
-        get_transcription_provider(), get_transcription_provider()
+def transcribe_audio_file_with_gemini(
+    file_path: str, mime_type: str | None = None
+) -> str:
+    if not settings.GEMINI_API_KEY:
+        raise TranscriptionError("Gemini API key is not configured.")
+
+    resolved_mime_type = (
+        mime_type or mimetypes.guess_type(file_path)[0] or "audio/mpeg"
     )
 
-
-def transcribe_audio_file(audio_file) -> str:
-    provider = get_transcription_provider()
-    if provider == PROVIDER_GROQ:
-        return transcribe_audio_file_with_groq(audio_file)
-    raise AudioTranscriptionError(f"Unsupported transcription provider: {provider}.")
-
-
-def transcribe_audio_file_with_groq(audio_file) -> str:
-    if isinstance(audio_file, (str, os.PathLike)):
-        return transcribe_audio_file_path_with_groq(str(audio_file))
-
-    if not settings.GROQ_API_KEY:
-        raise AudioTranscriptionError("Groq API key is not configured.")
-
     try:
-        if hasattr(audio_file, "seek"):
-            audio_file.seek(0)
-        filename = getattr(audio_file, "name", "audio")
-        file_payload = (
-            filename,
-            audio_file.read(),
-        )
-        client = get_groq_client_class()(api_key=settings.GROQ_API_KEY)
-        result = client.audio.transcriptions.create(
-            file=file_payload,
-            model=settings.GROQ_WHISPER_MODEL,
-            temperature=0,
-            response_format="verbose_json",
+        genai, types = get_gemini_modules()
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        with open(file_path, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+        response = client.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_bytes(
+                            data=audio_bytes,
+                            mime_type=resolved_mime_type,
+                        ),
+                        types.Part.from_text(
+                            text=STRICT_PHARMACY_TRANSCRIPTION_PROMPT
+                        ),
+                    ],
+                )
+            ],
         )
     except Exception as exc:
-        raise AudioTranscriptionError(
+        raise TranscriptionError(
             str(exc),
             safe_message=sanitize_transcription_error(str(exc)),
         ) from exc
 
-    text = getattr(result, "text", None)
-    if text is None and isinstance(result, dict):
-        text = result.get("text")
-    if not text:
-        raise AudioTranscriptionError("Transcription provider returned empty text.")
-    return text.strip()
-
-
-def transcribe_audio_file_path_with_groq(file_path: str) -> str:
-    if not settings.GROQ_API_KEY:
-        raise TranscriptionError("Groq API key is not configured.")
-
-    try:
-        client = get_groq_client_class()(api_key=settings.GROQ_API_KEY)
-        with open(file_path, "rb") as audio_file:
-            result = client.audio.transcriptions.create(
-                file=audio_file,
-                model=GROQ_TRANSCRIPTION_MODEL,
-                response_format="verbose_json",
-            )
-    except Exception as exc:
-        raise TranscriptionError(
-            f"Audio transcription provider failed: {str(exc)}"
-        ) from exc
-
-    text = getattr(result, "text", None)
-    if text is None and isinstance(result, dict):
-        text = result.get("text")
+    text = getattr(response, "text", None)
     if not text or not str(text).strip():
-        raise TranscriptionError("Transcription provider returned empty text.")
+        raise TranscriptionError("Gemini returned an empty transcript.")
     return str(text).strip()
 
 
-def get_groq_client_class():
-    from groq import Groq
+def get_gemini_modules():
+    from google import genai
+    from google.genai import types
 
-    return Groq
+    return genai, types

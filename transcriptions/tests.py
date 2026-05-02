@@ -1,5 +1,7 @@
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -9,73 +11,114 @@ from rest_framework.test import APITestCase
 from accounts.models import User
 from common.choices import ApprovalStatusChoices, RoleChoices
 from pharmacies.models import PharmacistProfile, Pharmacy
-from .exceptions import AudioTranscriptionError, sanitize_transcription_error
-from .services import TranscriptionError, get_transcription_provider_name, transcribe_audio_file
+
+from .exceptions import sanitize_transcription_error
+from .services import (
+    TranscriptionError,
+    transcribe_audio_file,
+    transcribe_audio_file_with_gemini,
+)
 
 
 class TranscriptionServiceTests(TestCase):
-    @override_settings(
-        TRANSCRIPTION_PROVIDER="groq",
-        GROQ_API_KEY="test-key",
-        GROQ_WHISPER_MODEL="whisper-large-v3",
-    )
-    @patch("transcriptions.services.get_groq_client_class")
-    def test_transcribe_audio_file_routes_to_groq(self, mock_get_groq_client_class):
-        audio = SimpleUploadedFile(
-            "instructions.mp3",
-            b"fake-audio",
-            content_type="audio/mpeg",
-        )
-        mock_groq = mock_get_groq_client_class.return_value
-        client = mock_groq.return_value
-        client.audio.transcriptions.create.return_value = SimpleNamespace(
-            text=" Take one tablet after food. "
-        )
+    @override_settings(GEMINI_API_KEY="test-key", GEMINI_MODEL="gemini-2.5-flash")
+    @patch("transcriptions.services.get_gemini_modules")
+    def test_transcribe_audio_file_routes_to_gemini(self, mock_get_gemini_modules):
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as temp_file:
+            temp_file.write(b"fake-audio")
+            temp_path = temp_file.name
 
-        result = transcribe_audio_file(audio)
+        try:
+            mock_genai = SimpleNamespace()
+            mock_client = SimpleNamespace(models=SimpleNamespace())
+            mock_client.models.generate_content = Mock(
+                return_value=SimpleNamespace(text=" Take one tablet after food. ")
+            )
+            mock_genai.Client = lambda api_key: mock_client
+            mock_types = SimpleNamespace(
+                Content=lambda role, parts: SimpleNamespace(role=role, parts=parts),
+                Part=SimpleNamespace(
+                    from_bytes=lambda data, mime_type: {
+                        "kind": "bytes",
+                        "data": data,
+                        "mime_type": mime_type,
+                    },
+                    from_text=lambda text: {"kind": "text", "text": text},
+                ),
+            )
+            mock_get_gemini_modules.return_value = (mock_genai, mock_types)
 
-        self.assertEqual(result, "Take one tablet after food.")
-        self.assertEqual(get_transcription_provider_name(), "groq_whisper")
-        client.audio.transcriptions.create.assert_called_once()
-        call_kwargs = client.audio.transcriptions.create.call_args.kwargs
-        self.assertEqual(call_kwargs["model"], "whisper-large-v3")
-        self.assertEqual(call_kwargs["temperature"], 0)
-        self.assertEqual(call_kwargs["response_format"], "verbose_json")
-        self.assertEqual(call_kwargs["file"][0], "instructions.mp3")
-        self.assertEqual(call_kwargs["file"][1], b"fake-audio")
-        self.assertEqual(len(call_kwargs["file"]), 2)
+            result = transcribe_audio_file(temp_path, mime_type="audio/mp4")
 
-    @override_settings(TRANSCRIPTION_PROVIDER="groq", GROQ_API_KEY="")
-    def test_transcribe_audio_file_requires_groq_api_key(self):
-        audio = SimpleUploadedFile(
-            "instructions.mp3",
-            b"fake-audio",
-            content_type="audio/mpeg",
-        )
+            self.assertEqual(
+                result,
+                {
+                    "provider": "gemini",
+                    "model": "gemini-2.5-flash",
+                    "transcript": "Take one tablet after food.",
+                },
+            )
+            mock_client.models.generate_content.assert_called_once()
+            call_kwargs = mock_client.models.generate_content.call_args.kwargs
+            self.assertEqual(call_kwargs["model"], "gemini-2.5-flash")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
-        with self.assertRaises(AudioTranscriptionError):
-            transcribe_audio_file(audio)
+    @override_settings(GEMINI_API_KEY="")
+    def test_transcribe_audio_file_with_gemini_requires_api_key(self):
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            temp_file.write(b"audio")
+            temp_path = temp_file.name
 
-    @override_settings(TRANSCRIPTION_PROVIDER="unsupported")
-    def test_transcribe_audio_file_rejects_unsupported_provider(self):
-        audio = SimpleUploadedFile(
-            "instructions.mp3",
-            b"fake-audio",
-            content_type="audio/mpeg",
-        )
+        try:
+            with self.assertRaises(TranscriptionError) as exc:
+                transcribe_audio_file_with_gemini(temp_path, mime_type="audio/wav")
+            self.assertEqual(str(exc.exception), "Gemini API key is not configured.")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
-        with self.assertRaises(AudioTranscriptionError):
-            transcribe_audio_file(audio)
+    @override_settings(GEMINI_API_KEY="test-key", GEMINI_MODEL="gemini-2.5-flash")
+    @patch("transcriptions.services.get_gemini_modules")
+    def test_gemini_empty_transcript_is_rejected(self, mock_get_gemini_modules):
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+            temp_file.write(b"audio")
+            temp_path = temp_file.name
+
+        try:
+            mock_genai = SimpleNamespace()
+            mock_client = SimpleNamespace(models=SimpleNamespace())
+            mock_client.models.generate_content = Mock(
+                return_value=SimpleNamespace(text="")
+            )
+            mock_genai.Client = lambda api_key: mock_client
+            mock_types = SimpleNamespace(
+                Content=lambda role, parts: SimpleNamespace(role=role, parts=parts),
+                Part=SimpleNamespace(
+                    from_bytes=lambda data, mime_type: {
+                        "kind": "bytes",
+                        "data": data,
+                        "mime_type": mime_type,
+                    },
+                    from_text=lambda text: {"kind": "text", "text": text},
+                ),
+            )
+            mock_get_gemini_modules.return_value = (mock_genai, mock_types)
+
+            with self.assertRaises(TranscriptionError) as exc:
+                transcribe_audio_file_with_gemini(temp_path, mime_type="audio/wav")
+            self.assertEqual(str(exc.exception), "Gemini returned an empty transcript.")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
     def test_sanitize_transcription_error_hides_sensitive_values(self):
         self.assertEqual(
-            sanitize_transcription_error("invalid api key gsk_secret"),
+            sanitize_transcription_error("invalid api key secret_value"),
             "Audio transcription provider authentication failed.",
         )
 
 
-class TestGroqTranscriptionEndpointTests(APITestCase):
-    endpoint = "/api/transcriptions/test-groq/"
+class TestTranscriptionEndpointTests(APITestCase):
+    endpoint = "/api/transcriptions/test/"
 
     def create_user(self, *, role, approval_status, phone_number):
         return User.objects.create_user(
@@ -113,13 +156,17 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
             content_type=content_type,
         )
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_approved_pharmacist_can_call_test_endpoint(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_approved_pharmacist_success(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.APPROVED,
             phone_number="5559000",
         )
-        mock_transcribe.return_value = "Take one tablet after food."
+        mock_transcribe.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "transcript": "Take one tablet after food.",
+        }
         self.client.force_authenticate(user)
 
         response = self.client.post(
@@ -130,13 +177,13 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "completed")
-        self.assertEqual(response.data["provider"], "groq")
-        self.assertEqual(response.data["model"], "whisper-large-v3-turbo")
+        self.assertEqual(response.data["provider"], "gemini")
+        self.assertEqual(response.data["model"], "gemini-2.5-flash")
         self.assertEqual(response.data["transcript"], "Take one tablet after food.")
         mock_transcribe.assert_called_once()
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_pending_pharmacist_receives_403(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_pending_pharmacist_403(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.PENDING,
             phone_number="5559001",
@@ -152,8 +199,8 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_transcribe.assert_not_called()
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_rejected_pharmacist_receives_403(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_rejected_pharmacist_403(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.REJECTED,
             phone_number="5559002",
@@ -169,8 +216,8 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_transcribe.assert_not_called()
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_approved_patient_receives_403(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_approved_patient_403(self, mock_transcribe):
         user = self.create_user(
             role=RoleChoices.PATIENT,
             approval_status=ApprovalStatusChoices.APPROVED,
@@ -187,7 +234,7 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_transcribe.assert_not_called()
 
-    def test_missing_audio_returns_400(self):
+    def test_missing_audio_400(self):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.APPROVED,
             phone_number="5559004",
@@ -199,8 +246,8 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("audio", response.data)
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_invalid_audio_type_returns_400(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_invalid_audio_type_400(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.APPROVED,
             phone_number="5559005",
@@ -217,8 +264,8 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertIn("audio", response.data)
         mock_transcribe.assert_not_called()
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_too_large_audio_returns_400(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_too_large_audio_400(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.APPROVED,
             phone_number="5559006",
@@ -236,8 +283,8 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
         self.assertIn("audio", response.data)
         mock_transcribe.assert_not_called()
 
-    @patch("transcriptions.views.transcribe_audio_file_with_groq")
-    def test_groq_service_failure_returns_502(self, mock_transcribe):
+    @patch("transcriptions.views.transcribe_audio_file")
+    def test_provider_failure_502(self, mock_transcribe):
         user = self.create_pharmacist(
             approval_status=ApprovalStatusChoices.APPROVED,
             phone_number="5559007",
@@ -253,5 +300,5 @@ class TestGroqTranscriptionEndpointTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.data["status"], "failed")
-        self.assertEqual(response.data["provider"], "groq")
+        self.assertEqual(response.data["provider"], "gemini")
         self.assertEqual(response.data["error"], "provider unavailable")

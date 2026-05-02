@@ -1,4 +1,6 @@
 import logging
+import os
+import tempfile
 
 from django.conf import settings
 from django.db.models import Count
@@ -43,10 +45,7 @@ from .serializers import (
 )
 from .services import log_prescription_access, transcribe_prescription_item
 from transcriptions.exceptions import AudioTranscriptionError
-from transcriptions.services import (
-    get_transcription_provider_name,
-    transcribe_audio_file,
-)
+from transcriptions.services import transcribe_audio_file
 
 logger = logging.getLogger(__name__)
 
@@ -377,8 +376,22 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         )
         item.refresh_from_db()
 
+        temp_path = None
+        audio_file = serializer.validated_data["audio"]
         try:
-            transcript = transcribe_audio_file(serializer.validated_data["audio"])
+            suffix = (
+                getattr(audio_file, "name", "")
+                and os.path.splitext(audio_file.name)[1]
+            ) or ".audio"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                temp_path = temp_file.name
+                for chunk in audio_file.chunks():
+                    temp_file.write(chunk)
+            result = transcribe_audio_file(
+                temp_path,
+                mime_type=(getattr(audio_file, "content_type", None) or None),
+            )
+            transcript = result["transcript"]
         except AudioTranscriptionError as exc:
             if settings.DEBUG:
                 logger.exception("Audio transcription provider failed.")
@@ -386,7 +399,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             failed_at = timezone.now()
             PrescriptionItem.objects.filter(pk=item.pk).update(
                 transcription_status="failed",
-                transcription_provider=get_transcription_provider_name(),
+                transcription_provider="gemini",
                 transcription_completed_at=failed_at,
                 transcription_error_message=provider_error,
                 updated_at=failed_at,
@@ -396,6 +409,9 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 {"detail": "Audio transcription failed. Please try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
 
         completed_at = timezone.now()
         PrescriptionItem.objects.filter(pk=item.pk).update(
@@ -403,7 +419,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             instructions_transcript_raw=transcript,
             instructions_transcript_edited=transcript,
             transcription_status="completed",
-            transcription_provider=get_transcription_provider_name(),
+            transcription_provider="gemini",
             transcription_completed_at=completed_at,
             transcription_error_message="",
             updated_at=completed_at,

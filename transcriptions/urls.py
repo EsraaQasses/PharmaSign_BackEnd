@@ -1,14 +1,14 @@
 from django.urls import path
 
-from .views import TestGroqTranscriptionView
+from .views import TestTranscriptionView
 
 
 app_name = "transcriptions"
 
 urlpatterns = [
     path(
-        "test-groq/",
-        TestGroqTranscriptionView.as_view(),
-        name="test_groq",
+        "test/",
+        TestTranscriptionView.as_view(),
+        name="test_transcription",
     ),
 ]

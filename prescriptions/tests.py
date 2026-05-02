@@ -737,7 +737,11 @@ class PharmacistPrescriptionMVPTests(APITestCase):
     def test_approved_pharmacist_can_transcribe_audio_for_own_draft_item(
         self, mock_transcribe
     ):
-        mock_transcribe.return_value = "Take one tablet after food three times a day"
+        mock_transcribe.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "transcript": "Take one tablet after food three times a day",
+        }
         prescription = self._create_prescription()
         item = prescription.items.first()
 
@@ -769,7 +773,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             item.transcription_status,
             TranscriptionStatusChoices.COMPLETED,
         )
-        self.assertEqual(item.transcription_provider, "groq_whisper")
+        self.assertEqual(item.transcription_provider, "gemini")
         self.assertFalse(item.instructions_audio)
         self.assertEqual(
             set(response.data["item"].keys()),
@@ -937,7 +941,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.instructions_text, "Existing text")
         self.assertEqual(item.transcription_status, TranscriptionStatusChoices.FAILED)
-        self.assertEqual(item.transcription_provider, "groq_whisper")
+        self.assertEqual(item.transcription_provider, "gemini")
         self.assertEqual(
             item.transcription_error_message,
             "provider failed",
@@ -1183,7 +1187,7 @@ class PrescriptionTranscriptionPipelineTests(APITestCase):
         )
         self.client.force_authenticate(self.pharmacist_user)
 
-    @override_settings(PHARMASIGN_TRANSCRIPTION_PROVIDER="placeholder")
+    @override_settings(PRESCRIPTION_TRANSCRIPTION_BACKEND="placeholder")
     def test_owner_pharmacist_can_transcribe_item(self):
         response = self.client.post(
             reverse("prescription-item-transcribe", kwargs={"pk": self.item.pk}),
@@ -1232,7 +1236,7 @@ class PrescriptionTranscriptionPipelineTests(APITestCase):
             "Cannot transcribe an item without instructions audio.",
         )
 
-    @override_settings(PHARMASIGN_TRANSCRIPTION_PROVIDER="failing")
+    @override_settings(PRESCRIPTION_TRANSCRIPTION_BACKEND="failing")
     def test_transcription_failure_marks_item_failed(self):
         response = self.client.post(
             reverse("prescription-item-transcribe", kwargs={"pk": self.item.pk}),

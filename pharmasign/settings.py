@@ -215,16 +215,9 @@ PHARMASIGN_ALLOWED_VIDEO_CONTENT_TYPES = env_to_list(
         default="video/mp4,video/webm,video/quicktime",
     )
 )
-PHARMASIGN_TRANSCRIPTION_PROVIDER = config(
-    "PHARMASIGN_TRANSCRIPTION_PROVIDER",
-    default="placeholder",
-)
-TRANSCRIPTION_PROVIDER = config("TRANSCRIPTION_PROVIDER", default="groq")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_WHISPER_MODEL = config(
-    "GROQ_WHISPER_MODEL",
-    default="whisper-large-v3-turbo",
-)
+TRANSCRIPTION_PROVIDER = "gemini"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 MAX_AUDIO_UPLOAD_SIZE_MB = config("MAX_AUDIO_UPLOAD_SIZE_MB", default=10, cast=int)
 
 # Default primary key field type

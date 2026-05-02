@@ -1,7 +1,9 @@
+import logging
 import os
 import tempfile
 from pathlib import Path
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -10,12 +12,10 @@ from rest_framework.views import APIView
 
 from common.choices import ApprovalStatusChoices, RoleChoices
 
-from .services import (
-    GROQ_TRANSCRIPTION_MODEL,
-    TranscriptionError,
-    transcribe_audio_file_with_groq,
-)
+from .services import TranscriptionError, transcribe_audio_file
 
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_TEST_AUDIO_CONTENT_TYPES = {
     "audio/mpeg",
@@ -29,9 +29,13 @@ SUPPORTED_TEST_AUDIO_CONTENT_TYPES = {
     "audio/ogg",
 }
 MAX_TEST_AUDIO_UPLOAD_BYTES = 25 * 1024 * 1024
+PENDING_APPROVAL_DETAIL = (
+    "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة."
+)
+REJECTED_APPROVAL_DETAIL = "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة."
 
 
-class TestGroqTranscriptionView(APIView):
+class TestTranscriptionView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -40,13 +44,9 @@ class TestGroqTranscriptionView(APIView):
 
     def _validate_user(self, user):
         if user.approval_status == ApprovalStatusChoices.PENDING:
-            return self._permission_denied_response(
-                "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة."
-            )
+            return self._permission_denied_response(PENDING_APPROVAL_DETAIL)
         if user.approval_status == ApprovalStatusChoices.REJECTED:
-            return self._permission_denied_response(
-                "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة."
-            )
+            return self._permission_denied_response(REJECTED_APPROVAL_DETAIL)
         if user.approval_status != ApprovalStatusChoices.APPROVED:
             return self._permission_denied_response("User account is not approved.")
         if user.role != RoleChoices.PHARMACIST:
@@ -78,9 +78,7 @@ class TestGroqTranscriptionView(APIView):
 
     def _temporary_suffix(self, audio):
         suffix = Path(getattr(audio, "name", "") or "").suffix
-        if suffix:
-            return suffix
-        return ".audio"
+        return suffix or ".audio"
 
     def post(self, request):
         permission_response = self._validate_user(request.user)
@@ -102,13 +100,18 @@ class TestGroqTranscriptionView(APIView):
                 for chunk in audio.chunks():
                     temp_file.write(chunk)
 
-            transcript = transcribe_audio_file_with_groq(temp_path)
+            result = transcribe_audio_file(
+                temp_path,
+                mime_type=(getattr(audio, "content_type", None) or None),
+            )
         except TranscriptionError as exc:
+            if settings.DEBUG:
+                logger.exception("Standalone transcription provider failed.")
             return Response(
                 {
                     "status": "failed",
-                    "provider": "groq",
-                    "error": str(exc),
+                    "provider": "gemini",
+                    "error": exc.safe_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
@@ -119,8 +122,8 @@ class TestGroqTranscriptionView(APIView):
         return Response(
             {
                 "status": "completed",
-                "provider": "groq",
-                "model": GROQ_TRANSCRIPTION_MODEL,
-                "transcript": transcript,
+                "provider": result["provider"],
+                "model": result["model"],
+                "transcript": result["transcript"],
             }
         )

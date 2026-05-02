@@ -45,7 +45,7 @@ BACKENDS = {
 
 
 def get_transcription_backend():
-    backend_name = settings.PHARMASIGN_TRANSCRIPTION_PROVIDER
+    backend_name = getattr(settings, 'PRESCRIPTION_TRANSCRIPTION_BACKEND', 'placeholder')
     backend_class = BACKENDS.get(backend_name)
     if backend_class is None:
         raise RuntimeError(f'Unsupported transcription provider: {backend_name}.')
