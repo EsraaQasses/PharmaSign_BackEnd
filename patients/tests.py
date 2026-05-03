@@ -141,6 +141,119 @@ class PatientSessionFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_patient_me_patch_persists_blood_type(self):
+        patient_user = User.objects.create_user(
+            email="patient.blood.patch@example.com",
+            password="StrongPass123!",
+            phone_number="0984201534",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Old Patient Name",
+            phone_number="0984201534",
+        )
+        PatientMedicalInfo.objects.create(patient=patient)
+
+        self.client.force_authenticate(patient_user)
+        response = self.client.patch(
+            reverse("patient-me"),
+            {
+                "full_name": "ام حبيب",
+                "phone": "0984201534",
+                "blood_type": "A_POS",
+                "allergies": "الحليب، اللحمة، الدهون",
+                "chronic_conditions": "سكري، ضغط، القلب",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["blood_type"], "A_POS")
+        patient.medical_info.refresh_from_db()
+        self.assertEqual(patient.medical_info.blood_type, "A_POS")
+        self.assertEqual(response.data["full_name"], "ام حبيب")
+        self.assertEqual(response.data["phone"], "0984201534")
+        self.assertEqual(response.data["allergies"], "الحليب، اللحمة، الدهون")
+        self.assertEqual(response.data["chronic_conditions"], "سكري، ضغط، القلب")
+
+    def test_patient_me_get_returns_saved_blood_type_after_patch(self):
+        patient_user = User.objects.create_user(
+            email="patient.blood.get@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Blood GET Patient")
+
+        self.client.force_authenticate(patient_user)
+        patch_response = self.client.patch(
+            reverse("patient-me"),
+            {"blood_type": "A_POS"},
+            format="json",
+        )
+        get_response = self.client.get(reverse("patient-me"))
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["blood_type"], "A_POS")
+
+    def test_patient_me_accepts_all_valid_blood_type_choices(self):
+        patient_user = User.objects.create_user(
+            email="patient.blood.choices@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Blood Choices Patient",
+        )
+        valid_choices = (
+            "A_POS",
+            "A_NEG",
+            "B_POS",
+            "B_NEG",
+            "AB_POS",
+            "AB_NEG",
+            "O_POS",
+            "O_NEG",
+        )
+
+        self.client.force_authenticate(patient_user)
+        for blood_type in valid_choices:
+            with self.subTest(blood_type=blood_type):
+                response = self.client.patch(
+                    reverse("patient-me"),
+                    {"blood_type": blood_type},
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data["blood_type"], blood_type)
+
+    def test_patient_me_rejects_invalid_blood_type(self):
+        patient_user = User.objects.create_user(
+            email="patient.blood.invalid@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Invalid Blood Patient",
+        )
+        PatientMedicalInfo.objects.create(patient=patient, blood_type="A_POS")
+
+        self.client.force_authenticate(patient_user)
+        response = self.client.patch(
+            reverse("patient-me"),
+            {"blood_type": "A_PLUS"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("blood_type", response.data)
+        patient.medical_info.refresh_from_db()
+        self.assertEqual(patient.medical_info.blood_type, "A_POS")
+
     def test_patient_settings_persist_after_patch_then_get(self):
         patient_user = User.objects.create_user(
             email="patient.settings@example.com",
@@ -188,7 +301,7 @@ class PatientSessionFlowTests(APITestCase):
                 "phone_number": "5555000",
                 "date_of_birth": "1999-01-01",
                 "gender": GenderChoices.FEMALE,
-                "blood_type": "A+",
+                "blood_type": "A_POS",
                 "allergies": "Penicillin",
                 "chronic_conditions": "Asthma",
                 "regular_medications": "Vitamin D",

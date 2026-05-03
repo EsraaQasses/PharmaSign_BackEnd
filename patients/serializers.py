@@ -7,7 +7,7 @@ from accounts.serializers import (
     build_compat_patient_profile_payload,
     build_compat_user_payload,
 )
-from common.choices import RoleChoices
+from common.choices import BloodTypeChoices, RoleChoices
 from .models import (
     PatientEnrollment,
     PatientLoginQR,
@@ -33,6 +33,7 @@ class PatientMedicalInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientMedicalInfo
         fields = (
+            "blood_type",
             "chronic_conditions",
             "allergies",
             "is_pregnant",
@@ -87,7 +88,11 @@ class PatientSelfProfileSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255, required=False)
     phone = serializers.CharField(required=False, allow_blank=True)
     national_id = serializers.CharField(read_only=True)
-    blood_type = serializers.CharField(required=False, allow_blank=True)
+    blood_type = serializers.ChoiceField(
+        choices=BloodTypeChoices.choices,
+        required=False,
+        allow_blank=True,
+    )
     allergies = serializers.CharField(required=False, allow_blank=True)
     chronic_conditions = serializers.CharField(required=False, allow_blank=True)
     regular_medications = serializers.CharField(required=False, allow_blank=True)
@@ -106,7 +111,7 @@ class PatientSelfProfileSerializer(serializers.Serializer):
             "full_name": instance.full_name,
             "phone": instance.phone_number or instance.user.phone_number or "",
             "national_id": "",
-            "blood_type": "",
+            "blood_type": medical_info.blood_type,
             "allergies": medical_info.allergies,
             "chronic_conditions": medical_info.chronic_conditions,
             "regular_medications": medical_info.notes,
@@ -137,6 +142,9 @@ class PatientSelfProfileSerializer(serializers.Serializer):
 
         medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=instance)
         medical_fields = []
+        if "blood_type" in validated_data:
+            medical_info.blood_type = validated_data["blood_type"]
+            medical_fields.append("blood_type")
         if "allergies" in validated_data:
             medical_info.allergies = validated_data["allergies"]
             medical_fields.append("allergies")
@@ -186,7 +194,11 @@ class AdminPatientCreateAccountSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
     )
-    blood_type = serializers.CharField(required=False, allow_blank=True)
+    blood_type = serializers.ChoiceField(
+        choices=BloodTypeChoices.choices,
+        required=False,
+        allow_blank=True,
+    )
     allergies = serializers.CharField(required=False, allow_blank=True)
     chronic_conditions = serializers.CharField(required=False, allow_blank=True)
     regular_medications = serializers.CharField(required=False, allow_blank=True)
@@ -247,6 +259,7 @@ class AdminPatientCreateAccountSerializer(serializers.Serializer):
         )
         PatientMedicalInfo.objects.create(
             patient=patient,
+            blood_type=validated_data.get("blood_type", ""),
             allergies=validated_data.get("allergies", ""),
             chronic_conditions=validated_data.get("chronic_conditions", ""),
             notes=validated_data.get("regular_medications")
@@ -363,7 +376,7 @@ def build_session_patient_payload(patient):
 def build_session_medical_info_payload(patient):
     medical_info = getattr(patient, "medical_info", None)
     return {
-        "blood_type": "",
+        "blood_type": getattr(medical_info, "blood_type", ""),
         "allergies": getattr(medical_info, "allergies", ""),
         "chronic_conditions": getattr(medical_info, "chronic_conditions", ""),
         "regular_medications": getattr(medical_info, "notes", ""),

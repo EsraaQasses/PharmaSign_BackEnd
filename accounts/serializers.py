@@ -49,7 +49,7 @@ def build_compat_patient_profile_payload(profile):
         "id": profile.id,
         "full_name": profile.full_name,
         "national_id": "",
-        "blood_type": "",
+        "blood_type": getattr(medical_info, "blood_type", ""),
         "allergies": getattr(medical_info, "allergies", ""),
         "chronic_conditions": getattr(medical_info, "chronic_conditions", ""),
         "regular_medications": getattr(medical_info, "notes", ""),

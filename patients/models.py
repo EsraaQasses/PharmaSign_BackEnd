@@ -4,6 +4,7 @@ from django.db import models
 from django.utils import timezone
 
 from common.choices import (
+    BloodTypeChoices,
     GenderChoices,
     HearingDisabilityLevelChoices,
     PatientSessionAccessTypeChoices,
@@ -161,6 +162,11 @@ class PatientMedicalInfo(TimeStampedModel):
         PatientProfile,
         on_delete=models.CASCADE,
         related_name="medical_info",
+    )
+    blood_type = models.CharField(
+        max_length=6,
+        choices=BloodTypeChoices.choices,
+        blank=True,
     )
     chronic_conditions = models.TextField(blank=True)
     allergies = models.TextField(blank=True)
