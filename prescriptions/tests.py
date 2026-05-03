@@ -26,6 +26,7 @@ from pharmacies.models import PharmacistProfile, Pharmacy
 from transcriptions.exceptions import AudioTranscriptionError
 
 from .models import Prescription, PrescriptionAccessLog, PrescriptionItem
+from .services import SignGenerationError
 
 
 class PrescriptionPermissionTests(APITestCase):
@@ -307,7 +308,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "frequency",
                 "duration",
                 "instructions_text",
+                "supporting_text",
                 "sign_status",
+                "sign_language_video",
+                "video_url",
             }
             if include_transcription:
                 expected_item_fields.update(
@@ -329,8 +333,6 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "price",
                 "quantity",
                 "transcription_requested_at",
-                "sign_language_video",
-                "supporting_text",
                 "is_confirmed",
                 "created_at",
                 "updated_at",
@@ -889,6 +891,167 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             TranscriptionStatusChoices.COMPLETED,
         )
         self.assertTrue(response.data["is_transcript_approved"])
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_success_when_instructions_text_exists(
+        self, mock_generate_sign_gloss
+    ):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "دواء قرص 1 بعد طعام كل يوم",
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ قرصا واحدا بعد الطعام كل يوم"
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["item_id"], item.id)
+        self.assertEqual(
+            response.data["approved_text"], "خذ قرصا واحدا بعد الطعام كل يوم"
+        )
+        self.assertEqual(response.data["gloss_text"], "دواء قرص 1 بعد طعام كل يوم")
+        self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
+        self.assertIsNone(response.data["video_url"])
+        self.assertEqual(
+            response.data["message"],
+            "Sign/gloss output generated successfully.",
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.supporting_text, "دواء قرص 1 بعد طعام كل يوم")
+        self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
+        self.assertFalse(item.sign_language_video)
+        mock_generate_sign_gloss.assert_called_once_with(
+            "خذ قرصا واحدا بعد الطعام كل يوم"
+        )
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_rejects_item_with_empty_instructions_text(
+        self, mock_generate_sign_gloss
+    ):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = ""
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"],
+            "Instruction text must be approved before generating sign output.",
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.sign_status, SignStatusChoices.PENDING)
+        mock_generate_sign_gloss.assert_not_called()
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_failure_sets_sign_status_failed(
+        self, mock_generate_sign_gloss
+    ):
+        mock_generate_sign_gloss.side_effect = SignGenerationError("provider failed")
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ قرصا واحدا يوميا"
+        item.supporting_text = "old gloss"
+        item.save(update_fields=["instructions_text", "supporting_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data["detail"],
+            "Sign/gloss generation failed. Please try again.",
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.instructions_text, "خذ قرصا واحدا يوميا")
+        self.assertEqual(item.supporting_text, "old gloss")
+        self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_unauthorized_pharmacist_cannot_generate_sign_for_another_prescription(
+        self, mock_generate_sign_gloss
+    ):
+        prescription = self._create_prescription(pharmacist=self.other_pharmacist)
+        item = prescription.items.first()
+        item.instructions_text = "Foreign pharmacist text"
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_generate_sign_gloss.assert_not_called()
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_response_contains_required_output_fields(
+        self, mock_generate_sign_gloss
+    ):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "جرعة 1 صباح",
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ جرعة واحدة صباحا"
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            set(response.data.keys()),
+            {
+                "item_id",
+                "approved_text",
+                "gloss_text",
+                "sign_status",
+                "video_url",
+                "message",
+            },
+        )
+        self.assertEqual(response.data["approved_text"], "خذ جرعة واحدة صباحا")
+        self.assertEqual(response.data["gloss_text"], "جرعة 1 صباح")
+        self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
+        self.assertIsNone(response.data["video_url"])
 
     def test_approve_transcript_requires_non_blank_text(self):
         prescription = self._create_prescription()

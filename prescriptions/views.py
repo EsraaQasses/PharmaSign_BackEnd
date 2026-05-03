@@ -15,6 +15,7 @@ from common.choices import (
     PrescriptionAccessTypeChoices,
     PrescriptionStatusChoices,
     RoleChoices,
+    SignStatusChoices,
     TranscriptionStatusChoices,
 )
 from common.permissions import (
@@ -44,7 +45,15 @@ from .serializers import (
     PrescriptionItemUpdateSerializer,
     PrescriptionSerializer,
 )
-from .services import log_prescription_access, transcribe_prescription_item
+from .services import (
+    SignGenerationError,
+    generate_sign_gloss,
+    log_prescription_access,
+    mark_prescription_item_sign_completed,
+    mark_prescription_item_sign_failed,
+    mark_prescription_item_sign_processing,
+    transcribe_prescription_item,
+)
 from transcriptions.exceptions import AudioTranscriptionError
 from transcriptions.services import transcribe_audio_file
 
@@ -54,6 +63,16 @@ logger = logging.getLogger(__name__)
 def ensure_draft_prescription(prescription):
     if prescription.status != PrescriptionStatusChoices.DRAFT:
         raise ValidationError({"detail": "Only draft prescriptions can be modified."})
+
+
+def ensure_sign_generation_prescription(prescription):
+    if prescription.status not in {
+        PrescriptionStatusChoices.DRAFT,
+        PrescriptionStatusChoices.SUBMITTED,
+    }:
+        raise ValidationError(
+            {"detail": "Only draft or submitted prescriptions can generate sign output."}
+        )
 
 
 class PrescriptionViewSet(
@@ -504,6 +523,56 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 "instructions_transcript_edited": item.instructions_transcript_edited,
                 "instructions_text": item.instructions_text,
                 "message": "Transcript approved successfully.",
+            }
+        )
+
+    def generate_sign(self, request, prescription_id, item_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        ensure_sign_generation_prescription(prescription)
+        try:
+            item = prescription.items.get(pk=item_id)
+        except PrescriptionItem.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        approved_text = item.instructions_text.strip()
+        if not approved_text:
+            return Response(
+                {
+                    "detail": (
+                        "Instruction text must be approved before generating sign "
+                        "output."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mark_prescription_item_sign_processing(item)
+        item.refresh_from_db()
+        try:
+            result = generate_sign_gloss(approved_text)
+        except SignGenerationError:
+            if settings.DEBUG:
+                logger.exception("Sign/gloss generation provider failed.")
+            mark_prescription_item_sign_failed(item)
+            return Response(
+                {"detail": "Sign/gloss generation failed. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        mark_prescription_item_sign_completed(item, result["gloss_text"])
+        item.refresh_from_db()
+        return Response(
+            {
+                "item_id": item.id,
+                "approved_text": approved_text,
+                "gloss_text": item.supporting_text,
+                "sign_status": SignStatusChoices.COMPLETED,
+                "video_url": None,
+                "message": "Sign/gloss output generated successfully.",
             }
         )
 

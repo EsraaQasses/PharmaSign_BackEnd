@@ -936,6 +936,7 @@ PATCH /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
 DELETE /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/
 POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/
 POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/approve-transcript/
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/generate-sign/
 POST /api/pharmacist/prescriptions/{prescription_id}/submit/
 ```
 
@@ -1109,6 +1110,57 @@ Common error responses:
 | 403 | Pharmacist not allowed or not approved | `{"detail": "Pharmacist account is not approved."}` or permission error |
 | 404 | Prescription or item not found | `{"detail": "Not found."}` |
 
+### Text-to-Gloss / Sign Generation
+
+This endpoint converts the pharmacist-approved `instructions_text` into Arabic medical sign-language gloss using Gemini. It does not use `instructions_transcript_raw` or any unapproved Gemini transcription output.
+
+```text
+POST /api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/generate-sign/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{}
+```
+
+Success response:
+
+```json
+{
+  "item_id": 4,
+  "approved_text": "خذي حبة كل 12 ساعة بعد الأكل لمدة سبعة أيام",
+  "gloss_text": "حبة 1 كل 12 ساعة بعد أكل مدة 7 أيام",
+  "sign_status": "completed",
+  "video_url": null,
+  "message": "Sign/gloss output generated successfully."
+}
+```
+
+Important behavior:
+
+- Only approved pharmacists can call this endpoint.
+- The prescription must belong to the authenticated pharmacist.
+- The item must belong to the prescription.
+- Prescription status may be `draft` or `submitted`.
+- `instructions_text` must be non-empty; this means the instruction was approved through `approve-transcript` or otherwise finalized.
+- Backend sets `sign_status = "processing"` before calling Gemini.
+- Backend stores Gemini gloss output in `supporting_text`.
+- Backend sets `sign_status = "completed"` after a successful Gemini response.
+- `sign_language_video` remains empty for this phase, so `video_url` is `null`.
+
+Common error responses:
+
+| Status | Situation | Response shape |
+| --- | --- | --- |
+| 400 | Missing approved instruction text | `{"detail": "Instruction text must be approved before generating sign output."}` |
+| 401 | Missing, invalid, or expired token | `{"detail": "Authentication credentials were not provided."}` or token error |
+| 403 | Pharmacist not allowed or not approved | `{"detail": "Pharmacist account is not approved."}` or permission error |
+| 404 | Prescription or item not found | `{"detail": "Not found."}` |
+| 500/502 | Gemini/sign provider failure | `{"detail": "Sign/gloss generation failed. Please try again."}` |
+
 #### Pharmacist Prescription Detail Items
 
 ```text
@@ -1134,7 +1186,10 @@ Each item in the response includes transcription fields:
   "instructions_transcript_raw": "نص Gemini الخام",
   "instructions_transcript_edited": "النص المعدل من الصيدلي",
   "is_transcript_approved": true,
-  "sign_status": "pending"
+  "supporting_text": "حبة 1 كل 12 ساعة بعد أكل مدة 7 أيام",
+  "sign_status": "completed",
+  "sign_language_video": null,
+  "video_url": null
 }
 ```
 
@@ -1145,6 +1200,9 @@ Field meanings:
 - `instructions_transcript_edited`: editable/reviewed working transcript.
 - `instructions_text`: final approved patient-facing instructions.
 - `is_transcript_approved`: read-only boolean; `true` only when `instructions_text` is non-empty.
+- `supporting_text`: temporary gloss text storage for this phase.
+- `sign_language_video`: currently unused and usually `null`.
+- `video_url`: currently `null` until video generation/storage is implemented.
 - `transcription_status`: existing backend status value. Possible values remain:
   - `not_requested`
   - `pending`
@@ -1258,6 +1316,7 @@ When user logs out:
 | PATCH/DELETE | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/` | Bearer | Approved pharmacist | Update/delete item | Draft only |
 | POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/transcribe-audio/` | Bearer | Approved pharmacist | Audio transcription | Draft only; transcript requires approval |
 | POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/approve-transcript/` | Bearer | Approved pharmacist | Approve reviewed transcript | Draft only; writes final `instructions_text` |
+| POST | `/api/pharmacist/prescriptions/{prescription_id}/items/{item_id}/generate-sign/` | Bearer | Approved pharmacist | Generate gloss text | Draft/submitted; uses approved `instructions_text` only |
 | POST | `/api/pharmacist/prescriptions/{prescription_id}/submit/` | Bearer | Approved pharmacist | Submit prescription | Requires at least one item |
 | GET | `/api/patients/me/prescriptions/` | Bearer | Patient | Patient prescription list | Submitted by default |
 | GET | `/api/patients/me/prescriptions/{prescription_id}/` | Bearer | Patient | Patient prescription detail | Own prescriptions only |

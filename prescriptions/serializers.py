@@ -69,6 +69,8 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
 
 
 class SafePrescriptionItemSerializer(serializers.ModelSerializer):
+    video_url = serializers.SerializerMethodField()
+
     class Meta:
         model = PrescriptionItem
         fields = (
@@ -78,9 +80,17 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
             "frequency",
             "duration",
             "instructions_text",
+            "supporting_text",
             "sign_status",
+            "sign_language_video",
+            "video_url",
         )
         read_only_fields = fields
+
+    def get_video_url(self, obj):
+        if not obj.sign_language_video:
+            return None
+        return obj.sign_language_video.url
 
 
 class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
@@ -243,6 +253,7 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
 
 class PharmacistPrescriptionItemSerializer(serializers.ModelSerializer):
     is_transcript_approved = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PrescriptionItem
@@ -261,12 +272,20 @@ class PharmacistPrescriptionItemSerializer(serializers.ModelSerializer):
             "instructions_transcript_raw",
             "instructions_transcript_edited",
             "is_transcript_approved",
+            "supporting_text",
             "sign_status",
+            "sign_language_video",
+            "video_url",
         )
         read_only_fields = fields
 
     def get_is_transcript_approved(self, obj):
         return bool(obj.instructions_text.strip())
+
+    def get_video_url(self, obj):
+        if not obj.sign_language_video:
+            return None
+        return obj.sign_language_video.url
 
 
 class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Serializer):
@@ -281,6 +300,8 @@ class ApproveTranscriptSerializer(serializers.Serializer):
 
 
 class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
+    video_url = serializers.SerializerMethodField()
+
     class Meta:
         model = PrescriptionItem
         fields = (
@@ -294,9 +315,17 @@ class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
             "transcription_provider",
             "instructions_transcript_raw",
             "instructions_transcript_edited",
+            "supporting_text",
             "sign_status",
+            "sign_language_video",
+            "video_url",
         )
         read_only_fields = fields
+
+    def get_video_url(self, obj):
+        if not obj.sign_language_video:
+            return None
+        return obj.sign_language_video.url
 
 
 class PharmacistPrescriptionSerializer(serializers.ModelSerializer):

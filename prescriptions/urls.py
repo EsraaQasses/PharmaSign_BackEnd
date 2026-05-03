@@ -37,6 +37,9 @@ pharmacist_prescription_item_transcribe_audio = PharmacistPrescriptionViewSet.as
 pharmacist_prescription_item_approve_transcript = PharmacistPrescriptionViewSet.as_view(
     {"post": "approve_transcript"}
 )
+pharmacist_prescription_item_generate_sign = PharmacistPrescriptionViewSet.as_view(
+    {"post": "generate_sign"}
+)
 pharmacist_prescription_submit = PharmacistPrescriptionViewSet.as_view(
     {"post": "submit"}
 )
@@ -78,6 +81,14 @@ urlpatterns = [
         ),
         pharmacist_prescription_item_approve_transcript,
         name="pharmacist-prescription-item-approve-transcript",
+    ),
+    path(
+        (
+            "pharmacist/prescriptions/<int:prescription_id>/items/"
+            "<int:item_id>/generate-sign/"
+        ),
+        pharmacist_prescription_item_generate_sign,
+        name="pharmacist-prescription-item-generate-sign",
     ),
     path(
         "pharmacist/prescriptions/<int:prescription_id>/submit/",

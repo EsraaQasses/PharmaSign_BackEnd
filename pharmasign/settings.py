@@ -223,6 +223,7 @@ PHARMASIGN_ALLOWED_VIDEO_CONTENT_TYPES = env_to_list(
 TRANSCRIPTION_PROVIDER = "gemini"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_SIGN_MODEL = os.getenv("GEMINI_SIGN_MODEL", GEMINI_MODEL)
 MAX_AUDIO_UPLOAD_SIZE_MB = config("MAX_AUDIO_UPLOAD_SIZE_MB", default=10, cast=int)
 
 # Default primary key field type
