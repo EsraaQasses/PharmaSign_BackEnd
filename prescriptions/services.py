@@ -34,6 +34,11 @@ Core style:
 - Do not invent a disease, dosage, warning, or duration that is not in the input.
 - If the input is simple, keep the output simple.
 - If the input is complex, expand it into a clear visual explanation.
+- Do not use unnatural phrases like: تخفيف او اقل.
+- Prefer dataset-style expressions like: يخفف، اخف، نخفف، وجع اخف.
+- For doctor-review warnings, do not say: دكتور مراجعة.
+- Use natural phrases like: لازم راجع الدكتور، فورا روحوا لعند الدكتور، لازم دكتور يشوف.
+- For usage instructions, prefer adding: كيف مناخد or كيف الاستخدام before the dose when appropriate.
 
 Normalization rules:
 - Remove Arabic diacritics completely.
@@ -90,6 +95,11 @@ Original:
 خدي حبة كل 8 ساعات بعد الأكل لمدة خمسة أيام
 Gloss:
 حبة وحدة كل 8 ساعات بعد الاكل مدة 5 يوم
+
+Original:
+هذا الدواء لتخفيف ألم المعدة خذ ملعقة كبيرة ثلاث مرات باليوم بعد الأكل وإذا صار في وجع قوي راجع الدكتور
+Gloss:
+الدوا الهدف وجع المعدة اخف كيف مناخد ملعقة كبيرة وحدة 3 مرات باليوم بعد الاكل اذا وجع قوي لازم راجع الدكتور
 
 Now convert this input into the same dataset style.
 
