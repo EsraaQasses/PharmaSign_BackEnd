@@ -26,6 +26,7 @@ from common.permissions import (
     has_patient_management_access,
 )
 
+from .constants import DOCTOR_SPECIALTY_OPTIONS
 from .models import Prescription, PrescriptionItem
 from .serializers import (
     ApproveTranscriptSerializer,
@@ -272,8 +273,15 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
 
     def list(self, request):
         queryset = self._queryset().annotate(item_count=Count("items"))
-        serializer = PharmacistPrescriptionListSerializer(queryset, many=True)
+        serializer = PharmacistPrescriptionListSerializer(
+            queryset,
+            many=True,
+            context={"request": request},
+        )
         return Response(serializer.data)
+
+    def doctor_specialties(self, request):
+        return Response({"results": DOCTOR_SPECIALTY_OPTIONS})
 
     def create(self, request):
         self._ensure_approved()
@@ -284,7 +292,10 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         prescription = serializer.save()
         return Response(
-            PharmacistPrescriptionSerializer(prescription).data,
+            PharmacistPrescriptionSerializer(
+                prescription,
+                context={"request": request},
+            ).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -298,7 +309,12 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             request.user,
             PrescriptionAccessTypeChoices.VIEW,
         )
-        return Response(PharmacistPrescriptionSerializer(prescription).data)
+        return Response(
+            PharmacistPrescriptionSerializer(
+                prescription,
+                context={"request": request},
+            ).data
+        )
 
     def partial_update(self, request, prescription_id):
         self._ensure_approved()
@@ -314,7 +330,12 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(PharmacistPrescriptionSerializer(prescription).data)
+        return Response(
+            PharmacistPrescriptionSerializer(
+                prescription,
+                context={"request": request},
+            ).data
+        )
 
     def add_item(self, request, prescription_id):
         self._ensure_approved()
@@ -330,7 +351,10 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             **serializer.validated_data,
         )
         return Response(
-            PharmacistPrescriptionItemSerializer(item).data,
+            PharmacistPrescriptionItemSerializer(
+                item,
+                context={"request": request},
+            ).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -354,7 +378,12 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         for field, value in serializer.validated_data.items():
             setattr(item, field, value)
         item.save()
-        return Response(PharmacistPrescriptionItemSerializer(item).data)
+        return Response(
+            PharmacistPrescriptionItemSerializer(
+                item,
+                context={"request": request},
+            ).data
+        )
 
     def delete_item(self, request, prescription_id, item_id):
         self._ensure_approved()
@@ -445,7 +474,12 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             )
             item.refresh_from_db()
             return Response(
-                {"detail": "Audio transcription failed. Please try again."},
+                {
+                    "detail": "Audio transcription failed",
+                    "code": "transcription_failed",
+                    "item_id": item.id,
+                    "transcription_status": item.transcription_status,
+                },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         finally:
@@ -457,7 +491,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             instructions_transcript_raw=transcript,
             instructions_transcript_edited=transcript,
             transcription_status=TranscriptionStatusChoices.COMPLETED,
-            transcription_provider="gemini",
+            transcription_provider=result["provider"],
             transcription_completed_at=completed_at,
             transcription_error_message="",
             updated_at=completed_at,
@@ -472,14 +506,11 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             {
                 "item_id": item.id,
                 "transcription_status": item.transcription_status,
-                "instructions_transcript_raw": item.instructions_transcript_raw,
-                "instructions_transcript_edited": item.instructions_transcript_edited,
-                "instructions_text": item.instructions_text,
-                "is_transcript_approved": bool(item.instructions_text.strip()),
-                "message": (
-                    "Audio transcribed successfully. Transcript requires pharmacist "
-                    "approval."
-                ),
+                "raw_transcript": item.instructions_transcript_raw,
+                "approved_instruction_text": None,
+                "provider": result["provider"],
+                "model": result["model"],
+                "detail": "Audio transcribed successfully",
             }
         )
 
@@ -517,12 +548,10 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         return Response(
             {
                 "item_id": item.id,
-                "transcription_status": item.transcription_status,
-                "is_transcript_approved": bool(item.instructions_text.strip()),
-                "instructions_transcript_raw": item.instructions_transcript_raw,
-                "instructions_transcript_edited": item.instructions_transcript_edited,
-                "instructions_text": item.instructions_text,
-                "message": "Transcript approved successfully.",
+                "raw_transcript": item.instructions_transcript_raw,
+                "approved_instruction_text": item.instructions_text,
+                "transcription_status": "approved",
+                "detail": "Transcript approved successfully",
             }
         )
 
@@ -538,14 +567,18 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         except PrescriptionItem.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        approved_text = item.instructions_text.strip()
-        if not approved_text:
+        source_text = (
+            item.instructions_text.strip()
+            or item.instructions_transcript_raw.strip()
+            or item.instructions_text.strip()
+        )
+        if not source_text:
             return Response(
                 {
-                    "detail": (
-                        "Instruction text must be approved before generating sign "
-                        "output."
-                    )
+                    "detail": "No instruction text is available for gloss generation.",
+                    "code": "missing_instruction_text",
+                    "item_id": item.id,
+                    "sign_status": item.sign_status,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -553,13 +586,19 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         mark_prescription_item_sign_processing(item)
         item.refresh_from_db()
         try:
-            result = generate_sign_gloss(approved_text)
+            result = generate_sign_gloss(source_text)
         except SignGenerationError:
             if settings.DEBUG:
                 logger.exception("Sign/gloss generation provider failed.")
             mark_prescription_item_sign_failed(item)
+            item.refresh_from_db()
             return Response(
-                {"detail": "Sign/gloss generation failed. Please try again."},
+                {
+                    "detail": "Gloss generation failed",
+                    "code": "gloss_generation_failed",
+                    "item_id": item.id,
+                    "sign_status": item.sign_status,
+                },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -568,11 +607,13 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         return Response(
             {
                 "item_id": item.id,
-                "approved_text": approved_text,
-                "gloss_text": item.supporting_text,
                 "sign_status": SignStatusChoices.COMPLETED,
+                "gloss_text": item.supporting_text,
+                "supporting_text": item.supporting_text,
                 "video_url": None,
-                "message": "Sign/gloss output generated successfully.",
+                "output_type": "gloss_only",
+                "video_generation_supported": False,
+                "detail": "Gloss generated successfully",
             }
         )
 
@@ -594,7 +635,10 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         return Response(
             {
                 "detail": "Prescription submitted successfully.",
-                "prescription": PharmacistPrescriptionSerializer(prescription).data,
+                "prescription": PharmacistPrescriptionSerializer(
+                    prescription,
+                    context={"request": request},
+                ).data,
             }
         )
 

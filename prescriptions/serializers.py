@@ -36,6 +36,77 @@ def build_prescription_pharmacy_payload(pharmacy):
     }
 
 
+def build_file_url(serializer, file_field):
+    if not file_field:
+        return None
+    try:
+        url = file_field.url
+    except ValueError:
+        return None
+    request = serializer.context.get("request")
+    if request:
+        return request.build_absolute_uri(url)
+    return url
+
+
+class PrescriptionItemContractSerializer(serializers.ModelSerializer):
+    medication_name = serializers.CharField(source="medicine_name", read_only=True)
+    instructions = serializers.CharField(source="instructions_text", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    audio_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+    raw_transcript = serializers.SerializerMethodField()
+    approved_instruction_text = serializers.SerializerMethodField()
+    gloss_text = serializers.CharField(source="supporting_text", read_only=True)
+    transcription_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrescriptionItem
+        fields = (
+            "id",
+            "medication_name",
+            "dosage",
+            "frequency",
+            "duration",
+            "instructions",
+            "quantity",
+            "price",
+            "image_url",
+            "audio_url",
+            "video_url",
+            "transcription_status",
+            "raw_transcript",
+            "approved_instruction_text",
+            "gloss_text",
+            "supporting_text",
+            "sign_status",
+            "is_confirmed",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_image_url(self, obj):
+        return build_file_url(self, obj.medicine_image)
+
+    def get_audio_url(self, obj):
+        return build_file_url(self, obj.instructions_audio)
+
+    def get_video_url(self, obj):
+        return build_file_url(self, obj.sign_language_video)
+
+    def get_raw_transcript(self, obj):
+        return obj.instructions_transcript_raw or None
+
+    def get_approved_instruction_text(self, obj):
+        return obj.instructions_text or None
+
+    def get_transcription_status(self, obj):
+        if obj.instructions_text.strip():
+            return "approved"
+        return obj.transcription_status
+
+
 class PrescriptionItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = PrescriptionItem
@@ -171,7 +242,8 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     patient = serializers.SerializerMethodField()
     pharmacist = serializers.SerializerMethodField()
     pharmacy = serializers.SerializerMethodField()
-    items = SafePrescriptionItemSerializer(many=True, read_only=True)
+    session_id = serializers.IntegerField(source="session.id", read_only=True)
+    items = PrescriptionItemContractSerializer(many=True, read_only=True)
 
     class Meta:
         model = Prescription
@@ -180,6 +252,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "patient",
             "pharmacist",
             "pharmacy",
+            "session_id",
             "session",
             "doctor_name",
             "doctor_specialty",
@@ -244,48 +317,36 @@ class PrescriptionItemTranscriptionRequestSerializer(serializers.Serializer):
 
 
 class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
-    medicine_name = serializers.CharField(max_length=255)
+    medicine_name = serializers.CharField(
+        max_length=255, required=False, allow_blank=True
+    )
+    medication_name = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, write_only=True
+    )
     dosage = serializers.CharField(max_length=100, required=False, allow_blank=True)
     frequency = serializers.CharField(max_length=100, required=False, allow_blank=True)
     duration = serializers.CharField(max_length=100, required=False, allow_blank=True)
     instructions_text = serializers.CharField(required=False, allow_blank=True)
+    instructions = serializers.CharField(
+        required=False, allow_blank=True, write_only=True
+    )
+
+    def validate(self, attrs):
+        medicine_name = attrs.pop("medication_name", None) or attrs.get("medicine_name")
+        instructions_text = attrs.pop("instructions", None)
+        if medicine_name is not None:
+            attrs["medicine_name"] = medicine_name
+        if instructions_text is not None:
+            attrs["instructions_text"] = instructions_text
+        if not self.partial and not attrs.get("medicine_name"):
+            raise serializers.ValidationError(
+                {"medication_name": "This field is required."}
+            )
+        return attrs
 
 
-class PharmacistPrescriptionItemSerializer(serializers.ModelSerializer):
-    is_transcript_approved = serializers.SerializerMethodField()
-    video_url = serializers.SerializerMethodField()
-
-    class Meta:
-        model = PrescriptionItem
-        fields = (
-            "id",
-            "medicine_name",
-            "dosage",
-            "frequency",
-            "duration",
-            "instructions_audio",
-            "instructions_text",
-            "transcription_status",
-            "transcription_provider",
-            "transcription_completed_at",
-            "transcription_error_message",
-            "instructions_transcript_raw",
-            "instructions_transcript_edited",
-            "is_transcript_approved",
-            "supporting_text",
-            "sign_status",
-            "sign_language_video",
-            "video_url",
-        )
-        read_only_fields = fields
-
-    def get_is_transcript_approved(self, obj):
-        return bool(obj.instructions_text.strip())
-
-    def get_video_url(self, obj):
-        if not obj.sign_language_video:
-            return None
-        return obj.sign_language_video.url
+class PharmacistPrescriptionItemSerializer(PrescriptionItemContractSerializer):
+    pass
 
 
 class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Serializer):
@@ -342,15 +403,19 @@ class PharmacistPrescriptionSerializer(serializers.ModelSerializer):
             "patient",
             "pharmacist",
             "pharmacy",
+            "session",
             "session_id",
-            "status",
             "doctor_name",
+            "doctor_specialty",
             "diagnosis",
-            "notes",
+            "status",
+            "prescribed_at",
             "submitted_at",
+            "delivered_at",
+            "notes",
+            "items",
             "created_at",
             "updated_at",
-            "items",
         )
         read_only_fields = fields
 
@@ -364,36 +429,26 @@ class PharmacistPrescriptionSerializer(serializers.ModelSerializer):
         return build_prescription_pharmacy_payload(obj.pharmacy)
 
 
-class PharmacistPrescriptionListSerializer(serializers.ModelSerializer):
-    patient = serializers.SerializerMethodField()
-    item_count = serializers.IntegerField(read_only=True)
-    session_id = serializers.IntegerField(source="session.id", read_only=True)
+class PharmacistPrescriptionListSerializer(PharmacistPrescriptionSerializer):
+    item_count = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Prescription
-        fields = (
-            "id",
-            "patient",
-            "session_id",
-            "status",
-            "doctor_name",
-            "diagnosis",
-            "notes",
-            "item_count",
-            "submitted_at",
-            "created_at",
-            "updated_at",
-        )
+    class Meta(PharmacistPrescriptionSerializer.Meta):
+        fields = PharmacistPrescriptionSerializer.Meta.fields + ("item_count",)
         read_only_fields = fields
 
-    def get_patient(self, obj):
-        return build_prescription_patient_payload(obj.patient)
+    def get_item_count(self, obj):
+        if hasattr(obj, "item_count"):
+            return obj.item_count
+        return obj.items.count()
 
 
 class PharmacistPrescriptionCreateSerializer(serializers.Serializer):
     session_id = serializers.IntegerField()
     patient_id = serializers.IntegerField()
     doctor_name = serializers.CharField(max_length=255)
+    doctor_specialty = serializers.CharField(
+        max_length=255, required=False, allow_blank=True
+    )
     diagnosis = serializers.CharField(max_length=255, required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)
     items = PharmacistPrescriptionItemInputSerializer(many=True, required=False)
@@ -459,7 +514,7 @@ class PharmacistPrescriptionCreateSerializer(serializers.Serializer):
 class PharmacistPrescriptionUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Prescription
-        fields = ("doctor_name", "diagnosis", "notes")
+        fields = ("doctor_name", "doctor_specialty", "diagnosis", "notes")
 
 
 class PharmacistPrescriptionSubmitSerializer(serializers.Serializer):

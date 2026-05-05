@@ -22,6 +22,9 @@ router.register(
 pharmacist_prescriptions = PharmacistPrescriptionViewSet.as_view(
     {"get": "list", "post": "create"}
 )
+pharmacist_prescription_doctor_specialties = PharmacistPrescriptionViewSet.as_view(
+    {"get": "doctor_specialties"}
+)
 pharmacist_prescription_detail = PharmacistPrescriptionViewSet.as_view(
     {"get": "retrieve", "patch": "partial_update"}
 )
@@ -50,6 +53,11 @@ urlpatterns = [
         "pharmacist/prescriptions/",
         pharmacist_prescriptions,
         name="pharmacist-prescriptions",
+    ),
+    path(
+        "pharmacist/prescriptions/doctor-specialties/",
+        pharmacist_prescription_doctor_specialties,
+        name="pharmacist-prescription-doctor-specialties",
     ),
     path(
         "pharmacist/prescriptions/<int:prescription_id>/",

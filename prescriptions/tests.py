@@ -25,6 +25,7 @@ from patients.models import PatientProfile, PatientSession
 from pharmacies.models import PharmacistProfile, Pharmacy
 from transcriptions.exceptions import AudioTranscriptionError
 
+from .constants import DOCTOR_SPECIALTY_LABELS
 from .models import Prescription, PrescriptionAccessLog, PrescriptionItem
 from .services import SignGenerationError
 
@@ -245,6 +246,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "session_id": self.session.id,
             "patient_id": self.patient.id,
             "doctor_name": "Dr. Ahmad",
+            "doctor_specialty": "قلبية",
             "diagnosis": "Flu",
             "notes": "Take medicines after food",
             "items": [
@@ -271,6 +273,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             pharmacy=pharmacist.pharmacy,
             session=self.session if pharmacist == self.pharmacist else None,
             doctor_name="Draft Doctor",
+            doctor_specialty="Internal Medicine",
             diagnosis="Draft Diagnosis",
         )
         if with_item:
@@ -303,53 +306,42 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         if payload["items"]:
             expected_item_fields = {
                 "id",
-                "medicine_name",
+                "medication_name",
                 "dosage",
                 "frequency",
                 "duration",
-                "instructions_text",
+                "instructions",
+                "quantity",
+                "price",
+                "image_url",
+                "audio_url",
+                "video_url",
+                "transcription_status",
+                "raw_transcript",
+                "approved_instruction_text",
+                "gloss_text",
                 "supporting_text",
                 "sign_status",
-                "sign_language_video",
-                "video_url",
-            }
-            if include_transcription:
-                expected_item_fields.update(
-                    {
-                        "instructions_audio",
-                        "transcription_status",
-                        "transcription_provider",
-                        "transcription_completed_at",
-                        "transcription_error_message",
-                        "instructions_transcript_raw",
-                        "instructions_transcript_edited",
-                        "is_transcript_approved",
-                    }
-                )
-            self.assertEqual(set(payload["items"][0].keys()), expected_item_fields)
-            blocked_item_fields = {
-                "prescription",
-                "medicine_image",
-                "price",
-                "quantity",
-                "transcription_requested_at",
                 "is_confirmed",
                 "created_at",
                 "updated_at",
             }
-            if not include_transcription:
-                blocked_item_fields.update(
-                    {
-                        "instructions_audio",
-                        "transcription_status",
-                        "transcription_provider",
-                        "transcription_completed_at",
-                        "transcription_error_message",
-                        "instructions_transcript_raw",
-                        "instructions_transcript_edited",
-                        "is_transcript_approved",
-                    }
-                )
+            self.assertEqual(set(payload["items"][0].keys()), expected_item_fields)
+            blocked_item_fields = {
+                "prescription",
+                "medicine_name",
+                "medicine_image",
+                "instructions_text",
+                "instructions_audio",
+                "transcription_provider",
+                "transcription_requested_at",
+                "transcription_completed_at",
+                "transcription_error_message",
+                "instructions_transcript_raw",
+                "instructions_transcript_edited",
+                "is_transcript_approved",
+                "sign_language_video",
+            }
             self.assertTrue(blocked_item_fields.isdisjoint(payload["items"][0].keys()))
         self.assertNotIn("email", payload["pharmacist"])
         self.assertNotIn("license_number", payload["pharmacist"])
@@ -377,6 +369,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["status"], PrescriptionStatusChoices.DRAFT)
         self.assertEqual(response.data["session_id"], self.session.id)
+        self.assertEqual(response.data["doctor_specialty"], "قلبية")
         self.assertEqual(response.data["patient"]["id"], self.patient.id)
         self.assertEqual(
             set(response.data["patient"].keys()),
@@ -390,6 +383,65 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(
             response.data["items"][0]["sign_status"], SignStatusChoices.PENDING
         )
+        prescription = Prescription.objects.get(pk=response.data["id"])
+        self.assertEqual(prescription.doctor_specialty, "قلبية")
+
+    def test_pharmacist_can_get_doctor_specialties(self):
+        response = self.client.get(
+            reverse("pharmacist-prescription-doctor-specialties")
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+        self.assertEqual(
+            [option["label"] for option in response.data["results"]],
+            list(DOCTOR_SPECIALTY_LABELS),
+        )
+        self.assertEqual(
+            [option["value"] for option in response.data["results"]],
+            list(DOCTOR_SPECIALTY_LABELS),
+        )
+        for option in response.data["results"]:
+            self.assertEqual(set(option.keys()), {"value", "label"})
+
+    def test_pharmacist_can_create_prescription_without_doctor_specialty(self):
+        response = self.client.post(
+            reverse("pharmacist-prescriptions"),
+            self._create_payload(doctor_specialty=""),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["doctor_specialty"], "")
+        prescription = Prescription.objects.get(pk=response.data["id"])
+        self.assertEqual(prescription.doctor_specialty, "")
+
+    def test_pharmacist_can_create_prescription_with_custom_doctor_specialty(self):
+        response = self.client.post(
+            reverse("pharmacist-prescriptions"),
+            self._create_payload(doctor_specialty="اختصاص نادر"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["doctor_specialty"], "اختصاص نادر")
+        prescription = Prescription.objects.get(pk=response.data["id"])
+        self.assertEqual(prescription.doctor_specialty, "اختصاص نادر")
+
+    def test_pharmacist_can_create_prescription_with_omitted_doctor_specialty(self):
+        payload = self._create_payload()
+        payload.pop("doctor_specialty")
+
+        response = self.client.post(
+            reverse("pharmacist-prescriptions"),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["doctor_specialty"], "")
+        prescription = Prescription.objects.get(pk=response.data["id"])
+        self.assertEqual(prescription.doctor_specialty, "")
 
     def test_unapproved_pharmacist_cannot_create_prescription(self):
         self.client.force_authenticate(self.unapproved_user)
@@ -499,7 +551,9 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         ids = {item["id"] for item in response.data}
         self.assertIn(own.id, ids)
         self.assertNotIn(other.id, ids)
-        self.assertEqual(response.data[0]["item_count"], 1)
+        own_payload = next(item for item in response.data if item["id"] == own.id)
+        self.assertEqual(own_payload["item_count"], 1)
+        self.assertEqual(own_payload["doctor_specialty"], "Internal Medicine")
 
     def test_pharmacist_can_filter_prescriptions(self):
         draft = self._create_prescription()
@@ -548,17 +602,18 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], prescription.id)
+        self.assertEqual(response.data["doctor_specialty"], "Internal Medicine")
         self.assert_safe_prescription_nested_shapes(
             response.data, include_transcription=True
         )
         item_payload = response.data["items"][0]
-        self.assertEqual(item_payload["instructions_transcript_raw"], "Raw transcript")
         self.assertEqual(
-            item_payload["instructions_transcript_edited"], "Approved instruction"
+            item_payload["raw_transcript"], "Raw transcript"
         )
-        self.assertEqual(item_payload["transcription_status"], "completed")
-        self.assertEqual(item_payload["transcription_provider"], "gemini")
-        self.assertTrue(item_payload["is_transcript_approved"])
+        self.assertEqual(
+            item_payload["approved_instruction_text"], "Approved instruction"
+        )
+        self.assertEqual(item_payload["transcription_status"], "approved")
 
     def test_pharmacist_cannot_retrieve_another_pharmacists_prescription(self):
         prescription = self._create_prescription(pharmacist=self.other_pharmacist)
@@ -582,6 +637,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             ),
             {
                 "doctor_name": "Dr. Updated",
+                "doctor_specialty": "عصبية",
                 "diagnosis": "Updated",
                 "notes": "Updated notes",
                 "status": PrescriptionStatusChoices.SUBMITTED,
@@ -592,7 +648,26 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         prescription.refresh_from_db()
         self.assertEqual(prescription.doctor_name, "Dr. Updated")
+        self.assertEqual(prescription.doctor_specialty, "عصبية")
+        self.assertEqual(response.data["doctor_specialty"], "عصبية")
         self.assertEqual(prescription.status, PrescriptionStatusChoices.DRAFT)
+
+    def test_pharmacist_can_update_draft_prescription_with_custom_specialty(self):
+        prescription = self._create_prescription()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-detail",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {"doctor_specialty": "طب رياضي"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prescription.refresh_from_db()
+        self.assertEqual(prescription.doctor_specialty, "طب رياضي")
+        self.assertEqual(response.data["doctor_specialty"], "طب رياضي")
 
     def test_pharmacist_cannot_update_submitted_prescription(self):
         prescription = self._create_prescription()
@@ -821,11 +896,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["item_id"], item.id)
         self.assertEqual(
-            response.data["message"],
-            (
-                "Audio transcribed successfully. Transcript requires pharmacist "
-                "approval."
-            ),
+            response.data["detail"],
+            "Audio transcribed successfully",
         )
         item.refresh_from_db()
         self.assertEqual(item.instructions_text, "")
@@ -843,10 +915,11 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
         self.assertEqual(item.transcription_provider, "gemini")
         self.assertTrue(item.instructions_audio)
-        self.assertEqual(response.data["instructions_text"], "")
-        self.assertFalse(response.data["is_transcript_approved"])
+        self.assertIsNone(response.data["approved_instruction_text"])
+        self.assertEqual(response.data["provider"], "gemini")
+        self.assertEqual(response.data["model"], "gemini-2.5-flash")
         self.assertEqual(
-            response.data["instructions_transcript_raw"],
+            response.data["raw_transcript"],
             "Take one tablet after food three times a day",
         )
         mock_transcribe.assert_called_once()
@@ -878,8 +951,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["item_id"], item.id)
         self.assertEqual(
-            response.data["message"],
-            "Transcript approved successfully.",
+            response.data["detail"],
+            "Transcript approved successfully",
         )
         item.refresh_from_db()
         self.assertEqual(item.instructions_transcript_raw, "Raw Gemini text")
@@ -888,9 +961,13 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(item.transcription_status, TranscriptionStatusChoices.COMPLETED)
         self.assertEqual(
             response.data["transcription_status"],
-            TranscriptionStatusChoices.COMPLETED,
+            "approved",
         )
-        self.assertTrue(response.data["is_transcript_approved"])
+        self.assertEqual(response.data["raw_transcript"], "Raw Gemini text")
+        self.assertEqual(
+            response.data["approved_instruction_text"],
+            "Edited approved text",
+        )
 
     @patch("prescriptions.views.generate_sign_gloss")
     def test_generate_sign_success_when_instructions_text_exists(
@@ -917,15 +994,12 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["item_id"], item.id)
-        self.assertEqual(
-            response.data["approved_text"], "خذ قرصا واحدا بعد الطعام كل يوم"
-        )
         self.assertEqual(response.data["gloss_text"], "دواء قرص 1 بعد طعام كل يوم")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
         self.assertEqual(
-            response.data["message"],
-            "Sign/gloss output generated successfully.",
+            response.data["detail"],
+            "Gloss generated successfully",
         )
         item.refresh_from_db()
         self.assertEqual(item.supporting_text, "دواء قرص 1 بعد طعام كل يوم")
@@ -956,7 +1030,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.data["detail"],
-            "Instruction text must be approved before generating sign output.",
+            "No instruction text is available for gloss generation.",
         )
         item.refresh_from_db()
         self.assertEqual(item.sign_status, SignStatusChoices.PENDING)
@@ -985,7 +1059,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(
             response.data["detail"],
-            "Sign/gloss generation failed. Please try again.",
+            "Gloss generation failed",
         )
         item.refresh_from_db()
         self.assertEqual(item.instructions_text, "خذ قرصا واحدا يوميا")
@@ -1041,14 +1115,15 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             set(response.data.keys()),
             {
                 "item_id",
-                "approved_text",
-                "gloss_text",
                 "sign_status",
+                "gloss_text",
+                "supporting_text",
                 "video_url",
-                "message",
+                "output_type",
+                "video_generation_supported",
+                "detail",
             },
         )
-        self.assertEqual(response.data["approved_text"], "خذ جرعة واحدة صباحا")
         self.assertEqual(response.data["gloss_text"], "جرعة 1 صباح")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
@@ -1315,7 +1390,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(
             response.data["detail"],
-            "Audio transcription failed. Please try again.",
+            "Audio transcription failed",
         )
         item.refresh_from_db()
         self.assertEqual(item.instructions_text, "")
