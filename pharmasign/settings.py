@@ -25,8 +25,36 @@ def env_to_list(value):
     return tuple(part.strip().lower() for part in str(value).split(",") if part.strip())
 
 
+def env_to_timedelta(value, *, default_unit):
+    raw = str(value).strip().lower()
+    if not raw:
+        raise ValueError("Duration value cannot be empty.")
+    unit = raw[-1]
+    amount = raw[:-1] if unit in {"m", "h", "d"} else raw
+    if not amount.isdigit():
+        raise ValueError("Duration must be an integer or a value ending in m, h, or d.")
+    amount = int(amount)
+    if unit == "m" or (unit not in {"m", "h", "d"} and default_unit == "minutes"):
+        return timedelta(minutes=amount)
+    if unit == "h" or (unit not in {"m", "h", "d"} and default_unit == "hours"):
+        return timedelta(hours=amount)
+    if unit == "d" or (unit not in {"m", "h", "d"} and default_unit == "days"):
+        return timedelta(days=amount)
+    raise ValueError("Unsupported duration unit.")
+
+
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_to_bool(config("DEBUG", default="True"))
+PHARMASIGN_ENV = config("PHARMASIGN_ENV", default="development")
+DEBUG = env_to_bool(
+    config(
+        "DEBUG",
+        default=(
+            "True"
+            if PHARMASIGN_ENV.lower() in {"dev", "development", "local"}
+            else "False"
+        ),
+    )
+)
 
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
@@ -225,6 +253,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_SIGN_MODEL = os.getenv("GEMINI_SIGN_MODEL", GEMINI_MODEL)
 MAX_AUDIO_UPLOAD_SIZE_MB = config("MAX_AUDIO_UPLOAD_SIZE_MB", default=10, cast=int)
+OTP_DELIVERY_PROVIDER_CONFIGURED = env_to_bool(
+    config("OTP_DELIVERY_PROVIDER_CONFIGURED", default="False")
+)
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -243,11 +274,15 @@ REST_FRAMEWORK = {
 
 # JWT Configuration
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(
-        hours=config("JWT_ACCESS_TOKEN_LIFETIME", default=5, cast=int)
+    "ACCESS_TOKEN_LIFETIME": config(
+        "JWT_ACCESS_TOKEN_LIFETIME",
+        default="5h",
+        cast=lambda value: env_to_timedelta(value, default_unit="hours"),
     ),
-    "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=config("JWT_REFRESH_TOKEN_LIFETIME", default=7, cast=int)
+    "REFRESH_TOKEN_LIFETIME": config(
+        "JWT_REFRESH_TOKEN_LIFETIME",
+        default="7d",
+        cast=lambda value: env_to_timedelta(value, default_unit="days"),
     ),
     "ROTATE_REFRESH_TOKENS": True,
 }

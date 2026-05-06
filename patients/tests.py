@@ -611,6 +611,9 @@ class PatientSessionQRFlowTests(APITestCase):
         self.client.force_authenticate(self.patient_user)
         response = self.client.post(reverse("patient-session-qr"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("qr_payload", response.data)
+        self.assertIn("expires_at", response.data)
+        self.assertEqual(response.data["expires_in_seconds"], 300)
         return response.data["qr_token"]
 
     def create_submitted_prescription(self, patient, submitted_at, doctor_name):
@@ -671,6 +674,8 @@ class PatientSessionQRFlowTests(APITestCase):
             response.data["session"]["status"], PatientSession.STATUS_ACTIVE
         )
         self.assertEqual(response.data["patient"]["id"], self.patient.id)
+        self.assertIn("started_at", response.data["session"])
+        self.assertIn("expires_at", response.data["session"])
         self.assertEqual(response.data["pharmacist"]["id"], self.pharmacist.id)
         self.assertEqual(response.data["pharmacy"]["id"], self.pharmacy.id)
         self.assertEqual(PatientSession.objects.count(), 1)
@@ -718,8 +723,10 @@ class PatientSessionQRFlowTests(APITestCase):
         self.assertIn("recent_prescriptions", response.data)
         self.assertEqual(response.data["patient"]["gender"], "female")
         self.assertEqual(response.data["patient"]["birth_date"], date(2000, 1, 1))
+        self.assertIn("hearing_disability_level", response.data["patient"])
         self.assertEqual(response.data["medical_info"]["allergies"], "Penicillin")
         self.assertEqual(response.data["medical_info"]["chronic_conditions"], "Asthma")
+        self.assertEqual(response.data["medical_info"]["notes"], "Vitamin D")
         self.assertEqual(
             response.data["medical_info"]["regular_medications"], "Vitamin D"
         )
@@ -845,7 +852,8 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "Invalid QR token.")
+        self.assertEqual(response.data["detail"], "Invalid QR token")
+        self.assertEqual(response.data["code"], "qr_invalid")
 
     def test_missing_qr_token_rejected(self):
         self.client.force_authenticate(self.pharmacist_user)
@@ -857,7 +865,8 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("qr_token", response.data)
+        self.assertEqual(response.data["code"], "missing_required_field")
+        self.assertIn("qr_token", response.data["fields"])
 
     def test_expired_qr_rejected(self):
         token = self.generate_qr()
@@ -873,7 +882,8 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "QR token has expired.")
+        self.assertEqual(response.data["detail"], "QR token has expired")
+        self.assertEqual(response.data["code"], "qr_expired")
 
     def test_used_qr_rejected_on_second_scan(self):
         token = self.generate_qr()
@@ -892,9 +902,10 @@ class PatientSessionQRFlowTests(APITestCase):
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            second.data["detail"][0],
-            "This QR token has already been used.",
+            second.data["detail"],
+            "QR token has already been used",
         )
+        self.assertEqual(second.data["code"], "qr_used")
 
     def test_revoked_qr_rejected(self):
         token = self.generate_qr()
@@ -909,7 +920,8 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "This QR token has been revoked.")
+        self.assertEqual(response.data["detail"], "QR token has been revoked")
+        self.assertEqual(response.data["code"], "qr_revoked")
 
     def test_pharmacist_can_list_only_own_sessions_and_filter_active(self):
         token = self.generate_qr()
@@ -970,7 +982,10 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["detail"], "Session ended successfully.")
+        self.assertEqual(response.data["detail"], "Session ended successfully")
+        self.assertEqual(response.data["session"]["id"], session_id)
+        self.assertEqual(response.data["session"]["status"], "ended")
+        self.assertIn("ended_at", response.data["session"])
         session = PatientSession.objects.get(pk=session_id)
         self.assertEqual(session.status, PatientSession.STATUS_COMPLETED)
         self.assertIsNotNone(session.ended_at)

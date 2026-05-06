@@ -341,20 +341,30 @@ class StartPatientSessionByQRSerializer(serializers.Serializer):
     def validate(self, attrs):
         token = attrs.get("qr_token") or attrs.get("qr_payload")
         if not token:
-            raise serializers.ValidationError({"qr_token": ["This field is required."]})
+            raise serializers.ValidationError(
+                {
+                    "detail": "QR token is required.",
+                    "code": "missing_required_field",
+                    "fields": {"qr_token": "This field is required."},
+                }
+            )
         session_qr = get_patient_session_qr_by_token(token)
         if not session_qr:
-            raise serializers.ValidationError({"detail": "Invalid QR token."})
+            raise serializers.ValidationError(
+                {"detail": "Invalid QR token", "code": "qr_invalid"}
+            )
         if session_qr.revoked_at:
             raise serializers.ValidationError(
-                {"detail": "This QR token has been revoked."}
+                {"detail": "QR token has been revoked", "code": "qr_revoked"}
             )
         if session_qr.used_at:
             raise serializers.ValidationError(
-                {"detail": "This QR token has already been used."}
+                {"detail": "QR token has already been used", "code": "qr_used"}
             )
         if session_qr.is_expired:
-            raise serializers.ValidationError({"detail": "QR token has expired."})
+            raise serializers.ValidationError(
+                {"detail": "QR token has expired", "code": "qr_expired"}
+            )
         if not session_qr.patient.user.is_active:
             raise serializers.ValidationError(
                 {"detail": "This patient account is inactive."}
@@ -370,6 +380,7 @@ def build_session_patient_payload(patient):
         "phone_number": patient.phone_number or patient.user.phone_number or "",
         "gender": patient.get_gender_display().lower() if patient.gender else "",
         "birth_date": patient.birth_date,
+        "hearing_disability_level": patient.hearing_disability_level,
     }
 
 
@@ -379,6 +390,7 @@ def build_session_medical_info_payload(patient):
         "blood_type": getattr(medical_info, "blood_type", ""),
         "allergies": getattr(medical_info, "allergies", ""),
         "chronic_conditions": getattr(medical_info, "chronic_conditions", ""),
+        "notes": getattr(medical_info, "notes", ""),
         "regular_medications": getattr(medical_info, "notes", ""),
         "is_pregnant": getattr(medical_info, "is_pregnant", False) or False,
         "is_breastfeeding": getattr(medical_info, "is_breastfeeding", False) or False,
@@ -436,7 +448,7 @@ def build_session_response_payload(session):
         "session": {
             "id": session.id,
             "status": session.status,
-            "created_at": session.created_at,
+            "started_at": session.started_at,
             "expires_at": session.expires_at,
         },
         "patient": build_session_patient_payload(session.patient),

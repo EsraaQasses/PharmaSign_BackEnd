@@ -46,6 +46,18 @@ pharmacist_prescription_item_generate_sign = PharmacistPrescriptionViewSet.as_vi
 pharmacist_prescription_submit = PharmacistPrescriptionViewSet.as_view(
     {"post": "submit"}
 )
+pharmacist_prescription_confirm = PharmacistPrescriptionViewSet.as_view(
+    {"post": "confirm"}
+)
+pharmacist_prescription_deliver = PharmacistPrescriptionViewSet.as_view(
+    {"post": "deliver"}
+)
+pharmacist_prescription_cancel = PharmacistPrescriptionViewSet.as_view(
+    {"post": "cancel"}
+)
+pharmacist_prescription_archive = PharmacistPrescriptionViewSet.as_view(
+    {"post": "archive"}
+)
 
 urlpatterns = [
     *router.urls,
@@ -102,5 +114,25 @@ urlpatterns = [
         "pharmacist/prescriptions/<int:prescription_id>/submit/",
         pharmacist_prescription_submit,
         name="pharmacist-prescription-submit",
+    ),
+    path(
+        "pharmacist/prescriptions/<int:prescription_id>/confirm/",
+        pharmacist_prescription_confirm,
+        name="pharmacist-prescription-confirm",
+    ),
+    path(
+        "pharmacist/prescriptions/<int:prescription_id>/deliver/",
+        pharmacist_prescription_deliver,
+        name="pharmacist-prescription-deliver",
+    ),
+    path(
+        "pharmacist/prescriptions/<int:prescription_id>/cancel/",
+        pharmacist_prescription_cancel,
+        name="pharmacist-prescription-cancel",
+    ),
+    path(
+        "pharmacist/prescriptions/<int:prescription_id>/archive/",
+        pharmacist_prescription_archive,
+        name="pharmacist-prescription-archive",
     ),
 ]

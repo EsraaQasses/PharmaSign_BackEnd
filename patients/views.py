@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from common.api_errors import validation_error_payload
 from common.permissions import (
     CanManagePatients,
     IsApprovedPharmacistRole,
@@ -256,7 +257,11 @@ class PharmacistPatientSessionViewSet(viewsets.ViewSet):
             raise PermissionDenied("Pharmacist account is not approved.")
 
         serializer = StartPatientSessionByQRSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         session_qr = serializer.validated_data["session_qr"]
         patient = session_qr.patient
         if not pharmacist_can_access_patient(request.user, patient):
@@ -295,4 +300,13 @@ class PharmacistPatientSessionViewSet(viewsets.ViewSet):
         session.status = PatientSession.STATUS_COMPLETED
         session.ended_at = timezone.now()
         session.save(update_fields=["status", "ended_at", "updated_at"])
-        return Response({"detail": "Session ended successfully."})
+        return Response(
+            {
+                "detail": "Session ended successfully",
+                "session": {
+                    "id": session.id,
+                    "status": "ended",
+                    "ended_at": session.ended_at,
+                },
+            }
+        )

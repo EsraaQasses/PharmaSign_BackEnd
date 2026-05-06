@@ -56,16 +56,27 @@ def _audio_extension(audio_file):
 def validate_transcription_audio_upload(audio_file):
     content_type = (getattr(audio_file, "content_type", "") or "").lower()
     extension = _audio_extension(audio_file)
+    if not getattr(audio_file, "name", None) or audio_file.size == 0:
+        raise serializers.ValidationError(
+            {"detail": "Invalid audio file.", "code": "invalid_audio_file"}
+        )
     if extension not in SUPPORTED_AUDIO_EXTENSIONS:
-        raise serializers.ValidationError(UNSUPPORTED_AUDIO_MESSAGE)
+        raise serializers.ValidationError(
+            {"detail": UNSUPPORTED_AUDIO_MESSAGE, "code": "unsupported_audio_type"}
+        )
     if content_type and content_type not in SUPPORTED_AUDIO_CONTENT_TYPES:
-        raise serializers.ValidationError(UNSUPPORTED_AUDIO_MESSAGE)
+        raise serializers.ValidationError(
+            {"detail": UNSUPPORTED_AUDIO_MESSAGE, "code": "unsupported_audio_type"}
+        )
 
     max_size_mb = settings.MAX_AUDIO_UPLOAD_SIZE_MB
     max_size_bytes = max_size_mb * 1024 * 1024
     if audio_file.size > max_size_bytes:
         raise serializers.ValidationError(
-            f"Audio file size must not exceed {max_size_mb}MB."
+            {
+                "detail": f"Audio file size must not exceed {max_size_mb}MB.",
+                "code": "audio_too_large",
+            }
         )
 
     return audio_file

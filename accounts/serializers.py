@@ -24,9 +24,7 @@ from .services import (
 User = get_user_model()
 PENDING_ACCOUNT_DETAIL = "حسابك قيد مراجعة المنظمة. سيتم تفعيله بعد الموافقة."
 REJECTED_ACCOUNT_DETAIL = "تم رفض طلب إنشاء الحساب. يرجى مراجعة المنظمة."
-REGISTRATION_PENDING_DETAIL = (
-    "Registration request submitted successfully. Your account is pending organization approval."
-)
+REGISTRATION_PENDING_DETAIL = "Registration request submitted successfully. Your account is pending organization approval."
 PENDING_ACCOUNT_DETAIL = AUTH_PENDING_ACCOUNT_DETAIL
 REJECTED_ACCOUNT_DETAIL = AUTH_REJECTED_ACCOUNT_DETAIL
 
@@ -35,7 +33,7 @@ def build_compat_user_payload(user):
     return {
         "id": user.id,
         "email": user.email,
-        "phone_number": user.phone_number or "",
+        "phone_number": user.phone_number,
         "role": user.role,
         "is_active": user.is_active,
         "is_verified": user.is_verified,
@@ -138,7 +136,11 @@ class LoginSerializer(serializers.Serializer):
         phone_number = attrs.get("phone_number") or attrs.get("phone")
         if not email and not phone_number:
             raise serializers.ValidationError(
-                {"detail": "Email or phone number is required."}
+                {
+                    "detail": "Email or phone number is required.",
+                    "code": "missing_required_field",
+                    "fields": {"identifier": "Email or phone number is required."},
+                }
             )
 
         user = None
@@ -148,9 +150,13 @@ class LoginSerializer(serializers.Serializer):
             user = User.objects.filter(email__iexact=email).first()
 
         if not user or not user.check_password(attrs["password"]):
-            raise serializers.ValidationError({"detail": "Invalid credentials."})
+            raise serializers.ValidationError(
+                {"detail": "Invalid credentials.", "code": "invalid_credentials"}
+            )
         if not user.is_active:
-            raise serializers.ValidationError({"detail": "This account is inactive."})
+            raise serializers.ValidationError(
+                {"detail": "This account is inactive.", "code": "account_inactive"}
+            )
         attrs["user"] = user
         return attrs
 
@@ -168,11 +174,19 @@ class RegistrationOTPRequestSerializer(serializers.Serializer):
         phone_number = attrs.get("phone_number") or attrs.get("phone")
         if not phone_number:
             raise serializers.ValidationError(
-                {"detail": "Phone number is required."}
+                {
+                    "detail": "Phone number is required.",
+                    "code": "missing_required_field",
+                    "fields": {"phone_number": "This field is required."},
+                }
             )
         if User.objects.filter(phone_number=phone_number).exists():
             raise serializers.ValidationError(
-                {"detail": "Phone number is already registered."}
+                {
+                    "detail": "Phone number is already registered.",
+                    "code": "duplicate_phone",
+                    "fields": {"phone_number": "Phone number is already registered."},
+                }
             )
         attrs["phone_number"] = phone_number
         attrs["purpose"] = registration_purpose_for_role(attrs["role"])
@@ -185,7 +199,7 @@ class RegistrationOTPRequestSerializer(serializers.Serializer):
             self.validated_data["purpose"],
         )
         payload = {
-            "detail": "Registration OTP generated successfully.",
+            "detail": "OTP sent successfully",
             "expires_in_seconds": OTP_EXPIRY_SECONDS,
         }
         if settings.DEBUG:
@@ -229,7 +243,7 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 class AuthMeSerializer(serializers.Serializer):
     def to_representation(self, user):
-        profile = None
+        profile = {}
         if user.role == RoleChoices.PATIENT and hasattr(user, "patient_profile"):
             profile = build_compat_patient_profile_payload(user.patient_profile)
         elif user.role == RoleChoices.PHARMACIST and hasattr(
@@ -352,14 +366,30 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
         full_name = attrs.get("full_name") or attrs.get("name")
         phone_number = attrs.get("phone_number") or attrs.get("phone")
         if not full_name:
-            raise serializers.ValidationError({"full_name": "This field is required."})
+            raise serializers.ValidationError(
+                {
+                    "detail": "Missing required field.",
+                    "code": "missing_required_field",
+                    "fields": {"full_name": "This field is required."},
+                }
+            )
         if not phone_number:
             raise serializers.ValidationError(
-                {"phone_number": "This field is required."}
+                {
+                    "detail": "Missing required field.",
+                    "code": "missing_required_field",
+                    "fields": {"phone_number": "This field is required."},
+                }
             )
         if User.objects.filter(phone_number=phone_number).exists():
             raise serializers.ValidationError(
-                {"phone_number": "A user with this phone number already exists."}
+                {
+                    "detail": "Phone number is already registered.",
+                    "code": "duplicate_phone",
+                    "fields": {
+                        "phone_number": "A user with this phone number already exists."
+                    },
+                }
             )
         if (
             attrs.get("confirm_password")
@@ -408,7 +438,7 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
 
     def to_response(self, user):
         return {
-            "detail": REGISTRATION_PENDING_DETAIL,
+            "detail": "Registration submitted successfully",
             "approval_status": user.approval_status,
             "user": build_compat_user_payload(user),
             "profile": {

@@ -22,11 +22,13 @@ def build_account_block_payload(user):
     if user.approval_status == ApprovalStatusChoices.PENDING:
         return {
             "detail": PENDING_ACCOUNT_DETAIL,
+            "code": "approval_pending",
             "approval_status": ApprovalStatusChoices.PENDING,
         }
     if user.approval_status == ApprovalStatusChoices.REJECTED:
         return {
             "detail": REJECTED_ACCOUNT_DETAIL,
+            "code": "approval_rejected",
             "approval_status": ApprovalStatusChoices.REJECTED,
             "rejection_reason": user.rejection_reason,
         }

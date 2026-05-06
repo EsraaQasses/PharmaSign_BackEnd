@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from django.conf import settings
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from common.choices import PrescriptionStatusChoices, SignStatusChoices
@@ -49,6 +53,35 @@ def build_file_url(serializer, file_field):
     return url
 
 
+def stable_error(detail, code):
+    return serializers.ValidationError({"detail": detail, "code": code})
+
+
+def validate_item_image_upload(uploaded_file):
+    extension = Path(getattr(uploaded_file, "name", "") or "").suffix.lower()
+    if extension not in settings.PHARMASIGN_ALLOWED_IMAGE_EXTENSIONS:
+        raise stable_error("Unsupported image file type.", "unsupported_image_type")
+    if uploaded_file.size > settings.PHARMASIGN_MAX_IMAGE_UPLOAD_BYTES:
+        raise stable_error("Image file is too large.", "image_too_large")
+
+    content_type = (getattr(uploaded_file, "content_type", "") or "").lower()
+    if (
+        content_type
+        and content_type not in settings.PHARMASIGN_ALLOWED_IMAGE_CONTENT_TYPES
+    ):
+        raise stable_error("Unsupported image file type.", "unsupported_image_type")
+
+    position = uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
+    try:
+        Image.open(uploaded_file).verify()
+    except (UnidentifiedImageError, OSError):
+        raise stable_error("Invalid image file.", "invalid_image_file")
+    finally:
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(position or 0)
+    return uploaded_file
+
+
 class PrescriptionItemContractSerializer(serializers.ModelSerializer):
     medication_name = serializers.CharField(source="medicine_name", read_only=True)
     instructions = serializers.CharField(source="instructions_text", read_only=True)
@@ -93,16 +126,16 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
         return build_file_url(self, obj.instructions_audio)
 
     def get_video_url(self, obj):
-        return build_file_url(self, obj.sign_language_video)
+        return None
 
     def get_raw_transcript(self, obj):
         return obj.instructions_transcript_raw or None
 
     def get_approved_instruction_text(self, obj):
-        return obj.instructions_text or None
+        return obj.instructions_transcript_edited or None
 
     def get_transcription_status(self, obj):
-        if obj.instructions_text.strip():
+        if obj.instructions_transcript_edited.strip():
             return "approved"
         return obj.transcription_status
 
@@ -330,14 +363,26 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
     instructions = serializers.CharField(
         required=False, allow_blank=True, write_only=True
     )
+    image = serializers.FileField(required=False, write_only=True)
+    image_file = serializers.FileField(required=False, write_only=True)
+    medication_image = serializers.FileField(required=False, write_only=True)
+    medicine_image = serializers.FileField(required=False, write_only=True)
 
     def validate(self, attrs):
         medicine_name = attrs.pop("medication_name", None) or attrs.get("medicine_name")
         instructions_text = attrs.pop("instructions", None)
+        image = (
+            attrs.pop("image", None)
+            or attrs.pop("image_file", None)
+            or attrs.pop("medication_image", None)
+            or attrs.pop("medicine_image", None)
+        )
         if medicine_name is not None:
             attrs["medicine_name"] = medicine_name
         if instructions_text is not None:
             attrs["instructions_text"] = instructions_text
+        if image is not None:
+            attrs["medicine_image"] = validate_item_image_upload(image)
         if not self.partial and not attrs.get("medicine_name"):
             raise serializers.ValidationError(
                 {"medication_name": "This field is required."}
@@ -350,14 +395,40 @@ class PharmacistPrescriptionItemSerializer(PrescriptionItemContractSerializer):
 
 
 class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Serializer):
-    audio = serializers.FileField()
+    audio = serializers.FileField(required=False)
+    audio_file = serializers.FileField(required=False, write_only=True)
+    voice = serializers.FileField(required=False, write_only=True)
 
-    def validate_audio(self, value):
-        return validate_transcription_audio_upload(value)
+    def validate(self, attrs):
+        audio = (
+            attrs.get("audio")
+            or attrs.get("audio_file")
+            or attrs.get("voice")
+        )
+        if audio is None:
+            raise stable_error("Audio file is required.", "missing_audio_file")
+        attrs["audio"] = validate_transcription_audio_upload(audio)
+        return attrs
 
 
 class ApproveTranscriptSerializer(serializers.Serializer):
-    approved_instruction_text = serializers.CharField(required=True, allow_blank=False)
+    approved_instruction_text = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if "approved_instruction_text" not in attrs:
+            raise stable_error(
+                "Approved instruction text is required.",
+                "missing_approved_instruction_text",
+            )
+        return attrs
+
+    def validate_approved_instruction_text(self, value):
+        if not value.strip():
+            raise stable_error(
+                "Approved instruction text is required.",
+                "missing_approved_instruction_text",
+            )
+        return value.strip()
 
 
 class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):

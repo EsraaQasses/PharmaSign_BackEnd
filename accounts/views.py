@@ -13,8 +13,9 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from pharmacies.serializers import PharmacistRegisterSerializer
+from common.api_errors import error_response, validation_error_payload
 from common.choices import ApprovalStatusChoices, RoleChoices
+from pharmacies.serializers import PharmacistRegisterSerializer
 
 from .serializers import (
     AuthMeSerializer,
@@ -95,6 +96,7 @@ class AuthViewSet(viewsets.ViewSet):
             return Response(
                 {
                     "detail": PENDING_ACCOUNT_DETAIL,
+                    "code": "approval_pending",
                     "approval_status": ApprovalStatusChoices.PENDING,
                 },
                 status=status.HTTP_403_FORBIDDEN,
@@ -103,6 +105,7 @@ class AuthViewSet(viewsets.ViewSet):
             return Response(
                 {
                     "detail": REJECTED_ACCOUNT_DETAIL,
+                    "code": "approval_rejected",
                     "approval_status": ApprovalStatusChoices.REJECTED,
                     "rejection_reason": user.rejection_reason,
                 },
@@ -116,6 +119,7 @@ class AuthViewSet(viewsets.ViewSet):
             return Response(
                 {
                     "detail": PENDING_ACCOUNT_DETAIL,
+                    "code": "approval_pending",
                     "approval_status": ApprovalStatusChoices.PENDING,
                 },
                 status=status.HTTP_403_FORBIDDEN,
@@ -139,7 +143,11 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="pharmacist/register")
     def pharmacist_register(self, request):
         serializer = PharmacistRegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         profile = serializer.save()
         return Response(serializer.to_response(profile), status=status.HTTP_201_CREATED)
 
@@ -149,7 +157,11 @@ class AuthViewSet(viewsets.ViewSet):
             data=request.data,
             context={"request": request},
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = serializer.validated_data["user"]
         blocked_response = self._approval_block_response(user)
         if blocked_response:
@@ -159,7 +171,11 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="patient/self-register")
     def patient_self_register(self, request):
         serializer = PatientSelfRegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = serializer.save()
         return Response(serializer.to_response(user), status=status.HTTP_201_CREATED)
 
@@ -170,22 +186,52 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="patient/register/request-otp")
     def patient_register_request_otp(self, request):
         serializer = PatientRegistrationOTPRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.save())
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return Response(serializer.save())
+        except ValidationError as exc:
+            return Response(
+                validation_error_payload(exc.detail),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=False, methods=["post"], url_path="pharmacist/register/request-otp")
     def pharmacist_register_request_otp(self, request):
         data = request.data.copy()
         data["role"] = "pharmacist"
         serializer = RegistrationOTPRequestSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.save())
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return Response(serializer.save())
+        except ValidationError as exc:
+            return Response(
+                validation_error_payload(exc.detail),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=False, methods=["post"], url_path="register/request-otp")
     def register_request_otp(self, request):
         serializer = RegistrationOTPRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.save())
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return Response(serializer.save())
+        except ValidationError as exc:
+            return Response(
+                validation_error_payload(exc.detail),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     @action(detail=False, methods=["post"], url_path="patient/qr-login")
     def patient_qr_login(self, request):
@@ -295,13 +341,21 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="logout")
     def logout(self, request):
         serializer = LogoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             token = RefreshToken(serializer.validated_data["refresh"])
             token.blacklist()
         except TokenError as exc:
-            raise ValidationError({"refresh": str(exc)})
-        return Response({"detail": "Logged out successfully."})
+            return error_response(
+                "Invalid refresh token.",
+                "invalid_refresh",
+                fields={"refresh": str(exc)},
+            )
+        return Response({"detail": "Logged out successfully"})
 
     @action(detail=False, methods=["post"], url_path="change-password")
     def change_password(self, request):
@@ -309,9 +363,13 @@ class AuthViewSet(viewsets.ViewSet):
             data=request.data,
             context={"request": request},
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer.save()
-        return Response({"detail": "Password changed successfully."})
+        return Response({"detail": "Password changed successfully"})
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):

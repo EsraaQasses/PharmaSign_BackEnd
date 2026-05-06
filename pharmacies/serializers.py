@@ -173,18 +173,38 @@ class PharmacistRegisterSerializer(serializers.Serializer):
         phone_number = attrs.get("phone_number") or attrs.get("phone")
         license_number = attrs.get("license_number") or attrs.get("license_id")
         if not full_name:
-            raise serializers.ValidationError({"full_name": "This field is required."})
+            raise serializers.ValidationError(
+                {
+                    "detail": "Missing required field.",
+                    "code": "missing_required_field",
+                    "fields": {"full_name": "This field is required."},
+                }
+            )
         if not phone_number:
             raise serializers.ValidationError(
-                {"phone_number": "This field is required."}
+                {
+                    "detail": "Missing required field.",
+                    "code": "missing_required_field",
+                    "fields": {"phone_number": "This field is required."},
+                }
             )
         if User.objects.filter(phone_number=phone_number).exists():
             raise serializers.ValidationError(
-                {"phone_number": "A user with this phone number already exists."}
+                {
+                    "detail": "Phone number is already registered.",
+                    "code": "duplicate_phone",
+                    "fields": {
+                        "phone_number": "A user with this phone number already exists."
+                    },
+                }
             )
         if not license_number:
             raise serializers.ValidationError(
-                {"license_number": "This field is required."}
+                {
+                    "detail": "Missing required field.",
+                    "code": "missing_required_field",
+                    "fields": {"license_number": "This field is required."},
+                }
             )
         if (
             attrs.get("confirm_password")
@@ -246,7 +266,7 @@ class PharmacistRegisterSerializer(serializers.Serializer):
 
     def to_response(self, profile):
         return {
-            "detail": REGISTRATION_PENDING_DETAIL,
+            "detail": "Registration submitted successfully",
             "approval_status": profile.user.approval_status,
             "user": build_compat_user_payload(profile.user),
             "profile": build_compat_pharmacist_profile_payload(profile),

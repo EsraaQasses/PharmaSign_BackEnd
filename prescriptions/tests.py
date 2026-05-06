@@ -607,9 +607,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             response.data, include_transcription=True
         )
         item_payload = response.data["items"][0]
-        self.assertEqual(
-            item_payload["raw_transcript"], "Raw transcript"
-        )
+        self.assertEqual(item_payload["raw_transcript"], "Raw transcript")
         self.assertEqual(
             item_payload["approved_instruction_text"], "Approved instruction"
         )
@@ -777,9 +775,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data["detail"][0],
-            "Prescription must contain at least one medication item before submission.",
+            response.data["detail"],
+            "Prescription must include at least one item before submission",
         )
+        self.assertEqual(response.data["code"], "prescription_has_no_items")
 
     def test_submit_succeeds_with_at_least_one_item(self):
         prescription = self._create_prescription()
@@ -797,9 +796,165 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         prescription.refresh_from_db()
         self.assertEqual(prescription.status, PrescriptionStatusChoices.SUBMITTED)
         self.assertIsNotNone(prescription.submitted_at)
+        self.assertEqual(response.data["detail"], "Prescription submitted successfully")
         self.assertEqual(
-            response.data["detail"], "Prescription submitted successfully."
+            response.data["prescription"]["status"], PrescriptionStatusChoices.SUBMITTED
         )
+
+    def test_confirm_submitted_prescription_succeeds(self):
+        prescription = self._create_prescription()
+        prescription.status = PrescriptionStatusChoices.SUBMITTED
+        prescription.submitted_at = timezone.now()
+        prescription.save(update_fields=["status", "submitted_at", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-confirm",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prescription.refresh_from_db()
+        self.assertEqual(prescription.status, PrescriptionStatusChoices.CONFIRMED)
+        self.assertEqual(response.data["detail"], "Prescription confirmed successfully")
+        self.assertEqual(
+            response.data["prescription"]["status"], PrescriptionStatusChoices.CONFIRMED
+        )
+
+    def test_deliver_confirmed_prescription_succeeds(self):
+        prescription = self._create_prescription()
+        prescription.status = PrescriptionStatusChoices.CONFIRMED
+        prescription.submitted_at = timezone.now()
+        prescription.save(update_fields=["status", "submitted_at", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-deliver",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prescription.refresh_from_db()
+        self.assertEqual(prescription.status, PrescriptionStatusChoices.DELIVERED)
+        self.assertIsNotNone(prescription.delivered_at)
+        self.assertEqual(response.data["detail"], "Prescription delivered successfully")
+        self.assertEqual(
+            response.data["prescription"]["status"], PrescriptionStatusChoices.DELIVERED
+        )
+
+    def test_cancel_submitted_or_confirmed_prescription_succeeds(self):
+        submitted = self._create_prescription()
+        submitted.status = PrescriptionStatusChoices.SUBMITTED
+        submitted.submitted_at = timezone.now()
+        submitted.save(update_fields=["status", "submitted_at", "updated_at"])
+        confirmed = self._create_prescription()
+        confirmed.status = PrescriptionStatusChoices.CONFIRMED
+        confirmed.submitted_at = timezone.now()
+        confirmed.save(update_fields=["status", "submitted_at", "updated_at"])
+
+        submitted_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-cancel",
+                kwargs={"prescription_id": submitted.id},
+            ),
+            {},
+            format="json",
+        )
+        confirmed_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-cancel",
+                kwargs={"prescription_id": confirmed.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(submitted_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(confirmed_response.status_code, status.HTTP_200_OK)
+        submitted.refresh_from_db()
+        confirmed.refresh_from_db()
+        self.assertEqual(submitted.status, PrescriptionStatusChoices.CANCELLED)
+        self.assertEqual(confirmed.status, PrescriptionStatusChoices.CANCELLED)
+
+    def test_archive_delivered_or_cancelled_prescription_succeeds(self):
+        delivered = self._create_prescription()
+        delivered.status = PrescriptionStatusChoices.DELIVERED
+        delivered.submitted_at = timezone.now()
+        delivered.delivered_at = timezone.now()
+        delivered.save(
+            update_fields=["status", "submitted_at", "delivered_at", "updated_at"]
+        )
+        cancelled = self._create_prescription()
+        cancelled.status = PrescriptionStatusChoices.CANCELLED
+        cancelled.submitted_at = timezone.now()
+        cancelled.save(update_fields=["status", "submitted_at", "updated_at"])
+
+        delivered_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-archive",
+                kwargs={"prescription_id": delivered.id},
+            ),
+            {},
+            format="json",
+        )
+        cancelled_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-archive",
+                kwargs={"prescription_id": cancelled.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(delivered_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(cancelled_response.status_code, status.HTTP_200_OK)
+        delivered.refresh_from_db()
+        cancelled.refresh_from_db()
+        self.assertEqual(delivered.status, PrescriptionStatusChoices.ARCHIVED)
+        self.assertEqual(cancelled.status, PrescriptionStatusChoices.ARCHIVED)
+
+    def test_invalid_lifecycle_transitions_fail_with_stable_code(self):
+        draft = self._create_prescription()
+        delivered = self._create_prescription()
+        delivered.status = PrescriptionStatusChoices.DELIVERED
+        delivered.delivered_at = timezone.now()
+        delivered.save(update_fields=["status", "delivered_at", "updated_at"])
+
+        draft_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-deliver",
+                kwargs={"prescription_id": draft.id},
+            ),
+            {},
+            format="json",
+        )
+        delivered_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-cancel",
+                kwargs={"prescription_id": delivered.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(draft_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(delivered_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            draft_response.data["code"], "invalid_prescription_status_transition"
+        )
+        self.assertEqual(draft_response.data["current_status"], "draft")
+        self.assertEqual(draft_response.data["target_status"], "delivered")
+        self.assertEqual(
+            delivered_response.data["code"], "invalid_prescription_status_transition"
+        )
+        self.assertEqual(delivered_response.data["current_status"], "delivered")
+        self.assertEqual(delivered_response.data["target_status"], "cancelled")
 
     def test_patient_can_list_submitted_prescriptions_but_not_drafts_by_default(self):
         draft = self._create_prescription()
@@ -861,6 +1016,100 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             content_type=content_type,
         )
 
+    def build_image_upload(self, filename="medicine.png", content_type="image/png"):
+        buffer = io.BytesIO()
+        image = Image.new("RGB", (1, 1), color="white")
+        image.save(buffer, format="PNG")
+        return SimpleUploadedFile(
+            filename,
+            buffer.getvalue(),
+            content_type=content_type,
+        )
+
+    def test_pharmacist_can_create_item_with_json(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Amoxicillin",
+                "dosage": "500mg",
+                "frequency": "Twice daily",
+                "duration": "7 days",
+                "instructions": "Take after food",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["medication_name"], "Amoxicillin")
+        self.assertIsNone(response.data["image_url"])
+        self.assertIsNone(response.data["audio_url"])
+        self.assertIsNone(response.data["video_url"])
+
+    def test_pharmacist_can_create_item_with_image_upload(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Amoxicillin",
+                "image": self.build_image_upload(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("/media/", response.data["image_url"])
+        item = prescription.items.get(pk=response.data["id"])
+        self.assertTrue(item.medicine_image)
+
+    def test_pharmacist_can_update_item_with_image_upload_alias(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"medication_image": self.build_image_upload("updated.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("/media/", response.data["image_url"])
+        item.refresh_from_db()
+        self.assertTrue(item.medicine_image)
+
+    def test_create_item_unsupported_image_file_fails_with_stable_code(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Amoxicillin",
+                "image": SimpleUploadedFile(
+                    "medicine.txt",
+                    b"not-image",
+                    content_type="text/plain",
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "unsupported_image_type")
+
     @patch("prescriptions.views.transcribe_audio_file")
     def test_approved_pharmacist_can_transcribe_audio_for_own_draft_item(
         self, mock_transcribe
@@ -905,10 +1154,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             item.instructions_transcript_raw,
             "Take one tablet after food three times a day",
         )
-        self.assertEqual(
-            item.instructions_transcript_edited,
-            "Take one tablet after food three times a day",
-        )
+        self.assertEqual(item.instructions_transcript_edited, "")
         self.assertEqual(
             item.transcription_status,
             TranscriptionStatusChoices.COMPLETED,
@@ -918,6 +1164,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertIsNone(response.data["approved_instruction_text"])
         self.assertEqual(response.data["provider"], "gemini")
         self.assertEqual(response.data["model"], "gemini-2.5-flash")
+        self.assertIn("/media/", response.data["audio_url"])
         self.assertEqual(
             response.data["raw_transcript"],
             "Take one tablet after food three times a day",
@@ -957,8 +1204,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.instructions_transcript_raw, "Raw Gemini text")
         self.assertEqual(item.instructions_transcript_edited, "Edited approved text")
-        self.assertEqual(item.instructions_text, "Edited approved text")
-        self.assertEqual(item.transcription_status, TranscriptionStatusChoices.COMPLETED)
+        self.assertEqual(item.instructions_text, "Take daily")
+        self.assertEqual(
+            item.transcription_status, TranscriptionStatusChoices.COMPLETED
+        )
         self.assertEqual(
             response.data["transcription_status"],
             "approved",
@@ -976,12 +1225,21 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         mock_generate_sign_gloss.return_value = {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
-            "gloss_text": "دواء قرص 1 بعد طعام كل يوم",
+            "gloss_text": "generated gloss",
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
-        item.instructions_text = "خذ قرصا واحدا بعد الطعام كل يوم"
-        item.save(update_fields=["instructions_text", "updated_at"])
+        item.instructions_transcript_edited = "Approved text has priority"
+        item.instructions_transcript_raw = "Raw transcript text"
+        item.instructions_text = "Manual instructions"
+        item.save(
+            update_fields=[
+                "instructions_transcript_edited",
+                "instructions_transcript_raw",
+                "instructions_text",
+                "updated_at",
+            ]
+        )
 
         response = self.client.post(
             reverse(
@@ -994,20 +1252,81 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["item_id"], item.id)
-        self.assertEqual(response.data["gloss_text"], "دواء قرص 1 بعد طعام كل يوم")
+        self.assertEqual(response.data["gloss_text"], "generated gloss")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
-        self.assertEqual(
-            response.data["detail"],
-            "Gloss generated successfully",
-        )
+        self.assertEqual(response.data["detail"], "Gloss generated successfully")
         item.refresh_from_db()
-        self.assertEqual(item.supporting_text, "دواء قرص 1 بعد طعام كل يوم")
+        self.assertEqual(item.supporting_text, "generated gloss")
         self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
         self.assertFalse(item.sign_language_video)
-        mock_generate_sign_gloss.assert_called_once_with(
-            "خذ قرصا واحدا بعد الطعام كل يوم"
+        mock_generate_sign_gloss.assert_called_once_with("Approved text has priority")
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_falls_back_to_raw_transcript(self, mock_generate_sign_gloss):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "raw gloss",
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_transcript_edited = ""
+        item.instructions_transcript_raw = "Raw transcript text"
+        item.instructions_text = "Manual instructions"
+        item.save(
+            update_fields=[
+                "instructions_transcript_edited",
+                "instructions_transcript_raw",
+                "instructions_text",
+                "updated_at",
+            ]
         )
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_generate_sign_gloss.assert_called_once_with("Raw transcript text")
+
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_falls_back_to_instructions(self, mock_generate_sign_gloss):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "instruction gloss",
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_transcript_edited = ""
+        item.instructions_transcript_raw = ""
+        item.instructions_text = "Manual instructions"
+        item.save(
+            update_fields=[
+                "instructions_transcript_edited",
+                "instructions_transcript_raw",
+                "instructions_text",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_generate_sign_gloss.assert_called_once_with("Manual instructions")
 
     @patch("prescriptions.views.generate_sign_gloss")
     def test_generate_sign_rejects_item_with_empty_instructions_text(
@@ -1032,6 +1351,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             response.data["detail"],
             "No instruction text is available for gloss generation.",
         )
+        self.assertEqual(response.data["code"], "missing_instruction_text")
         item.refresh_from_db()
         self.assertEqual(item.sign_status, SignStatusChoices.PENDING)
         mock_generate_sign_gloss.assert_not_called()
@@ -1128,6 +1448,85 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
 
+
+    @override_settings(GEMINI_API_KEY="")
+    def test_generate_sign_provider_not_configured_response(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_transcript_edited = "Approved text"
+        item.save(update_fields=["instructions_transcript_edited", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "gloss_provider_not_configured")
+        item.refresh_from_db()
+        self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
+
+    def test_archived_prescription_cannot_be_modified_or_processed(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        prescription.status = PrescriptionStatusChoices.ARCHIVED
+        prescription.save(update_fields=["status", "updated_at"])
+
+        add_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {"medication_name": "Blocked"},
+            format="json",
+        )
+        update_response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"frequency": "blocked"},
+            format="json",
+        )
+        transcribe_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-transcribe-audio",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"audio": self.build_audio_upload()},
+            format="multipart",
+        )
+        approve_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-approve-transcript",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"approved_instruction_text": "Approved"},
+            format="json",
+        )
+        generate_response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        for response in (
+            add_response,
+            update_response,
+            transcribe_response,
+            approve_response,
+            generate_response,
+        ):
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.data["code"], "prescription_archived")
+
     def test_approve_transcript_requires_non_blank_text(self):
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -1142,7 +1541,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("approved_instruction_text", response.data)
+        self.assertEqual(response.data["code"], "missing_approved_instruction_text")
 
     def test_transcribe_audio_requires_audio_file(self):
         prescription = self._create_prescription()
@@ -1158,7 +1557,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("audio", response.data)
+        self.assertEqual(response.data["code"], "missing_audio_file")
 
     @patch("prescriptions.views.transcribe_audio_file")
     def test_transcribe_audio_accepts_common_audio_formats(self, mock_transcribe):
@@ -1228,6 +1627,29 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_transcribe.assert_called_once()
 
+    @override_settings(GEMINI_API_KEY="")
+    def test_transcribe_audio_provider_not_configured_response(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-transcribe-audio",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"audio": self.build_audio_upload()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "transcription_provider_not_configured")
+        self.assertEqual(
+            response.data["transcription_status"], TranscriptionStatusChoices.FAILED
+        )
+        item.refresh_from_db()
+        self.assertTrue(item.instructions_audio)
+        self.assertEqual(item.transcription_status, TranscriptionStatusChoices.FAILED)
+
     def test_transcribe_audio_rejects_unsupported_audio_extension(self):
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -1247,7 +1669,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Allowed formats include", response.data["audio"][0])
+        self.assertEqual(response.data["code"], "unsupported_audio_type")
 
     def test_transcribe_audio_rejects_image_extension(self):
         prescription = self._create_prescription()
@@ -1268,7 +1690,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Allowed formats include", response.data["audio"][0])
+        self.assertEqual(response.data["code"], "unsupported_audio_type")
 
     @override_settings(MAX_AUDIO_UPLOAD_SIZE_MB=1)
     def test_transcribe_audio_rejects_large_audio_file(self):
@@ -1285,10 +1707,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data["audio"][0],
-            "Audio file size must not exceed 1MB.",
-        )
+        self.assertEqual(response.data["code"], "audio_too_large")
 
     def test_unapproved_pharmacist_cannot_transcribe_audio(self):
         self.client.force_authenticate(self.unapproved_user)

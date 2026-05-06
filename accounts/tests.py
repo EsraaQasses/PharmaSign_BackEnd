@@ -48,7 +48,7 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["detail"], "Registration OTP generated successfully.")
+        self.assertEqual(response.data["detail"], "OTP sent successfully")
         self.assertEqual(response.data["expires_in_seconds"], 300)
         self.assertRegex(response.data["debug_otp"], r"^\d{6}$")
         self.assertEqual(PhoneOTP.objects.count(), 1)
@@ -110,19 +110,23 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "Phone number is already registered.")
+        self.assertEqual(response.data["detail"], "Phone number is already registered.")
+        self.assertEqual(response.data["code"], "duplicate_phone")
 
-    @override_settings(DEBUG=False)
-    def test_debug_false_registration_otp_response_does_not_include_debug_otp(self):
+    @override_settings(DEBUG=False, OTP_DELIVERY_PROVIDER_CONFIGURED=False)
+    def test_debug_false_registration_otp_without_provider_returns_clear_error(self):
         response = self.client.post(
             reverse("accounts:patient_register_request_otp"),
             {"phone_number": "5557003"},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["detail"], "OTP delivery provider is not configured"
+        )
+        self.assertEqual(response.data["code"], "otp_provider_not_configured")
         self.assertNotIn("debug_otp", response.data)
-        self.assertNotIn("code_hash", response.data)
 
     @override_settings(DEBUG=True)
     def test_patient_register_without_otp_fails(self):
@@ -160,7 +164,9 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertEqual(user.approval_status, ApprovalStatusChoices.PENDING)
         self.assertFalse(user.is_verified)
         self.assertEqual(response.data["user"]["email"], None)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
         self.assertNotIn("access", response.data)
         self.assertNotIn("refresh", response.data)
 
@@ -274,7 +280,8 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "Invalid OTP.")
+        self.assertEqual(response.data["detail"], "Invalid OTP.")
+        self.assertEqual(response.data["code"], "invalid_otp")
         challenge = PhoneOTP.objects.get(phone_number="5557011")
         self.assertEqual(challenge.attempts, 1)
         self.assertIsNone(challenge.used_at)
@@ -297,7 +304,8 @@ class AuthAndPatientFlowTests(APITestCase):
             )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "Too many OTP attempts.")
+        self.assertEqual(response.data["detail"], "Too many OTP attempts.")
+        self.assertEqual(response.data["code"], "otp_max_attempts_exceeded")
         challenge = PhoneOTP.objects.get(phone_number="5557012")
         self.assertEqual(challenge.attempts, 5)
         self.assertIsNotNone(challenge.used_at)
@@ -321,7 +329,8 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "OTP has expired.")
+        self.assertEqual(response.data["detail"], "OTP has expired.")
+        self.assertEqual(response.data["code"], "expired_otp")
 
     @override_settings(DEBUG=True)
     def test_used_registration_otp_cannot_be_reused(self):
@@ -349,9 +358,12 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(second_response.data["detail"][0], "Invalid OTP.")
+        self.assertEqual(second_response.data["detail"], "Invalid OTP.")
+        self.assertEqual(second_response.data["code"], "invalid_otp")
 
-    def test_admin_can_create_patient_account_from_enrollment_without_registration_otp(self):
+    def test_admin_can_create_patient_account_from_enrollment_without_registration_otp(
+        self,
+    ):
         admin_user = User.objects.create_user(
             email="admin@example.com",
             password="StrongPass123!",
@@ -406,6 +418,20 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertEqual(
+            set(response.data["user"].keys()),
+            {
+                "id",
+                "email",
+                "phone_number",
+                "role",
+                "is_active",
+                "is_verified",
+                "approval_status",
+            },
+        )
+        self.assertIn("profile", response.data)
 
     def test_login_by_email_still_works(self):
         user = User.objects.create_user(
@@ -438,9 +464,8 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data["detail"][0], "Email or phone number is required."
-        )
+        self.assertEqual(response.data["detail"], "Email or phone number is required.")
+        self.assertEqual(response.data["code"], "missing_required_field")
 
     def test_login_wrong_password_fails(self):
         user = User.objects.create_user(
@@ -461,7 +486,8 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["detail"][0], "Invalid credentials.")
+        self.assertEqual(response.data["detail"], "Invalid credentials.")
+        self.assertEqual(response.data["code"], "invalid_credentials")
 
     def test_approved_pharmacist_with_unapproved_profile_cannot_login(self):
         user = User.objects.create_user(
@@ -491,7 +517,10 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
+        self.assertEqual(response.data["code"], "approval_pending")
         self.assertNotIn("access", response.data)
 
     def test_approved_pharmacist_with_approved_profile_can_login(self):
@@ -504,7 +533,9 @@ class AuthAndPatientFlowTests(APITestCase):
             is_verified=True,
             is_active=True,
         )
-        pharmacy = Pharmacy.objects.create(name="Approved Login Pharmacy", address="Damascus")
+        pharmacy = Pharmacy.objects.create(
+            name="Approved Login Pharmacy", address="Damascus"
+        )
         PharmacistProfile.objects.create(
             user=user,
             pharmacy=pharmacy,
@@ -549,7 +580,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
         self.assertNotIn("access", response.data)
 
     def test_rejected_pharmacist_login_returns_rejected_with_reason(self):
@@ -577,7 +610,10 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.REJECTED
+        )
+        self.assertEqual(response.data["code"], "approval_rejected")
         self.assertEqual(response.data["rejection_reason"], "Invalid license")
         self.assertNotIn("access", response.data)
 
@@ -678,7 +714,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
 
     def test_rejected_patient_login_returns_rejected_with_reason(self):
         user = User.objects.create_user(
@@ -698,7 +736,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.REJECTED
+        )
         self.assertEqual(response.data["rejection_reason"], "Invalid documents")
 
     def test_admin_can_approve_patient_user(self):
@@ -832,7 +872,9 @@ class AuthAndPatientFlowTests(APITestCase):
             approval_status=ApprovalStatusChoices.APPROVED,
             is_verified=True,
         )
-        pharmacy = Pharmacy.objects.create(name="Reject Profile Pharmacy", address="Damascus")
+        pharmacy = Pharmacy.objects.create(
+            name="Reject Profile Pharmacy", address="Damascus"
+        )
         profile = PharmacistProfile.objects.create(
             user=user,
             pharmacy=pharmacy,
@@ -887,7 +929,9 @@ class AuthAndPatientFlowTests(APITestCase):
         response = self.client.get(reverse("accounts:me"))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
 
     def test_rejected_user_with_jwt_cannot_access_protected_endpoint(self):
         user = User.objects.create_user(
@@ -905,7 +949,9 @@ class AuthAndPatientFlowTests(APITestCase):
         response = self.client.get(reverse("accounts:me"))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.REJECTED
+        )
         self.assertEqual(response.data["rejection_reason"], "Invalid documents")
 
     def test_inactive_user_with_jwt_cannot_access_protected_endpoint(self):
@@ -976,7 +1022,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
 
     def test_rejected_user_cannot_refresh_token(self):
         user = User.objects.create_user(
@@ -997,7 +1045,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.REJECTED)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.REJECTED
+        )
 
     def test_patient_manager_can_approve_patient_but_not_pharmacist(self):
         organization = Organization.objects.create(name="Patient Manager Org")
@@ -1208,7 +1258,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["approval_status"], ApprovalStatusChoices.PENDING)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
 
     def test_logout_and_change_password_still_work(self):
         user = User.objects.create_user(
@@ -1238,3 +1290,7 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(change_response.status_code, status.HTTP_200_OK)
         self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            change_response.data["detail"], "Password changed successfully"
+        )
+        self.assertEqual(logout_response.data["detail"], "Logged out successfully")

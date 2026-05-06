@@ -72,8 +72,82 @@ def ensure_sign_generation_prescription(prescription):
         PrescriptionStatusChoices.SUBMITTED,
     }:
         raise ValidationError(
-            {"detail": "Only draft or submitted prescriptions can generate sign output."}
+            {
+                "detail": "Only draft or submitted prescriptions can generate sign output."
+            }
         )
+
+
+PRESCRIPTION_STATUS_TRANSITIONS = {
+    PrescriptionStatusChoices.DRAFT: {PrescriptionStatusChoices.SUBMITTED},
+    PrescriptionStatusChoices.SUBMITTED: {
+        PrescriptionStatusChoices.CONFIRMED,
+        PrescriptionStatusChoices.CANCELLED,
+    },
+    PrescriptionStatusChoices.CONFIRMED: {
+        PrescriptionStatusChoices.DELIVERED,
+        PrescriptionStatusChoices.CANCELLED,
+    },
+    PrescriptionStatusChoices.DELIVERED: {PrescriptionStatusChoices.ARCHIVED},
+    PrescriptionStatusChoices.CANCELLED: {PrescriptionStatusChoices.ARCHIVED},
+    PrescriptionStatusChoices.ARCHIVED: set(),
+}
+
+
+def prescription_error(
+    detail, code, *, status_code=status.HTTP_400_BAD_REQUEST, **extra
+):
+    payload = {"detail": detail, "code": code}
+    payload.update(extra)
+    return Response(payload, status=status_code)
+
+
+def serializer_error_response(serializer):
+    def first_value(value):
+        if isinstance(value, (list, tuple)) and value:
+            return first_value(value[0])
+        return str(value)
+
+    errors = serializer.errors
+    if isinstance(errors, dict):
+        detail = errors.get("detail")
+        code = errors.get("code")
+        if detail and code:
+            return prescription_error(first_value(detail), first_value(code))
+        non_field_errors = errors.get("non_field_errors")
+        if non_field_errors:
+            first = non_field_errors[0]
+            if isinstance(first, dict) and first.get("detail") and first.get("code"):
+                return prescription_error(
+                    first_value(first["detail"]),
+                    first_value(first["code"]),
+                )
+        for value in errors.values():
+            if isinstance(value, dict) and value.get("detail") and value.get("code"):
+                return prescription_error(
+                    first_value(value["detail"]),
+                    first_value(value["code"]),
+                )
+    return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def media_url(request, file_field):
+    if not file_field:
+        return None
+    try:
+        url = file_field.url
+    except ValueError:
+        return None
+    return request.build_absolute_uri(url) if request else url
+
+
+def invalid_prescription_transition_response(current_status, target_status):
+    return prescription_error(
+        f"Cannot move prescription from {current_status} to {target_status}",
+        "invalid_prescription_status_transition",
+        current_status=current_status,
+        target_status=target_status,
+    )
 
 
 class PrescriptionViewSet(
@@ -176,9 +250,21 @@ class PrescriptionViewSet(
     def confirm(self, request, pk=None):
         prescription = self.get_object()
         if prescription.pharmacist.user_id != request.user.id:
-            raise PermissionDenied("Only the prescription pharmacist can confirm it.")
+            return prescription_error(
+                "Only the prescription pharmacist can confirm it.",
+                "prescription_permission_denied",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         serializer = self.get_serializer(data=request.data or {})
         serializer.is_valid(raise_exception=True)
+        if prescription.status not in {
+            PrescriptionStatusChoices.DRAFT,
+            PrescriptionStatusChoices.SUBMITTED,
+        }:
+            return invalid_prescription_transition_response(
+                prescription.status,
+                PrescriptionStatusChoices.CONFIRMED,
+            )
         prescription.status = PrescriptionStatusChoices.CONFIRMED
         prescription.save(update_fields=["status", "updated_at"])
         log_prescription_access(
@@ -186,7 +272,15 @@ class PrescriptionViewSet(
             request.user,
             PrescriptionAccessTypeChoices.CONFIRM,
         )
-        return Response(PrescriptionSerializer(prescription).data)
+        return Response(
+            {
+                "detail": "Prescription confirmed successfully",
+                "prescription": PrescriptionSerializer(
+                    prescription,
+                    context={"request": request},
+                ).data,
+            }
+        )
 
 
 class PrescriptionItemViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):
@@ -271,6 +365,87 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
     def _get_prescription(self, prescription_id):
         return self._queryset().get(pk=prescription_id)
 
+    def _not_found_response(self):
+        return prescription_error(
+            "Prescription not found",
+            "prescription_not_found",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _item_not_found_response(self):
+        return prescription_error(
+            "Item not found",
+            "item_not_found",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _ensure_not_archived(self, prescription):
+        if prescription.status == PrescriptionStatusChoices.ARCHIVED:
+            return prescription_error(
+                "Prescription is archived",
+                "prescription_archived",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _ensure_draft_response(self, prescription):
+        archived_response = self._ensure_not_archived(prescription)
+        if archived_response is not None:
+            return archived_response
+        if prescription.status != PrescriptionStatusChoices.DRAFT:
+            return prescription_error(
+                "Only draft prescriptions can be modified.",
+                "invalid_prescription_status",
+            )
+        return None
+
+    def _ensure_sign_generation_response(self, prescription):
+        archived_response = self._ensure_not_archived(prescription)
+        if archived_response is not None:
+            return archived_response
+        if prescription.status not in {
+            PrescriptionStatusChoices.DRAFT,
+            PrescriptionStatusChoices.SUBMITTED,
+        }:
+            return prescription_error(
+                "Only draft or submitted prescriptions can generate sign output.",
+                "invalid_prescription_status",
+            )
+        return None
+
+    def _lifecycle_response(self, detail, prescription):
+        prescription.refresh_from_db()
+        return Response(
+            {
+                "detail": detail,
+                "prescription": PharmacistPrescriptionSerializer(
+                    prescription,
+                    context={"request": self.request},
+                ).data,
+            }
+        )
+
+    def _transition_prescription(self, prescription, target_status, detail):
+        allowed_targets = PRESCRIPTION_STATUS_TRANSITIONS.get(
+            prescription.status, set()
+        )
+        if target_status not in allowed_targets:
+            return invalid_prescription_transition_response(
+                prescription.status,
+                target_status,
+            )
+        update_fields = ["status", "updated_at"]
+        prescription.status = target_status
+        now = timezone.now()
+        if target_status == PrescriptionStatusChoices.SUBMITTED:
+            prescription.submitted_at = now
+            update_fields.append("submitted_at")
+        if target_status == PrescriptionStatusChoices.DELIVERED:
+            prescription.delivered_at = now
+            update_fields.append("delivered_at")
+        prescription.save(update_fields=update_fields)
+        return self._lifecycle_response(detail, prescription)
+
     def list(self, request):
         queryset = self._queryset().annotate(item_count=Count("items"))
         serializer = PharmacistPrescriptionListSerializer(
@@ -303,7 +478,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._not_found_response()
         log_prescription_access(
             prescription,
             request.user,
@@ -321,8 +496,10 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         serializer = PharmacistPrescriptionUpdateSerializer(
             prescription,
             data=request.data,
@@ -342,10 +519,13 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         serializer = PharmacistPrescriptionItemInputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return serializer_error_response(serializer)
         item = PrescriptionItem.objects.create(
             prescription=prescription,
             **serializer.validated_data,
@@ -363,18 +543,21 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._item_not_found_response()
         serializer = PharmacistPrescriptionItemInputSerializer(
             item,
             data=request.data,
             partial=True,
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return serializer_error_response(serializer)
         for field, value in serializer.validated_data.items():
             setattr(item, field, value)
         item.save()
@@ -390,12 +573,14 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._item_not_found_response()
         item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -404,17 +589,20 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._item_not_found_response()
 
         serializer = PharmacistPrescriptionItemAudioTranscriptionSerializer(
             data=request.data
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return serializer_error_response(serializer)
 
         now = timezone.now()
         audio_file = serializer.validated_data["audio"]
@@ -445,11 +633,30 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         if hasattr(audio_file, "seek"):
             audio_file.seek(0)
 
+        if not settings.GEMINI_API_KEY:
+            failed_at = timezone.now()
+            PrescriptionItem.objects.filter(pk=item.pk).update(
+                transcription_status=TranscriptionStatusChoices.FAILED,
+                transcription_provider="gemini",
+                transcription_completed_at=failed_at,
+                transcription_error_message="Audio transcription provider is not configured",
+                updated_at=failed_at,
+            )
+            item.refresh_from_db()
+            return Response(
+                {
+                    "detail": "Audio transcription provider is not configured",
+                    "code": "transcription_provider_not_configured",
+                    "item_id": item.id,
+                    "transcription_status": item.transcription_status,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         temp_path = None
         try:
             suffix = (
-                getattr(audio_file, "name", "")
-                and os.path.splitext(audio_file.name)[1]
+                getattr(audio_file, "name", "") and os.path.splitext(audio_file.name)[1]
             ) or ".audio"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                 temp_path = temp_file.name
@@ -489,7 +696,6 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         completed_at = timezone.now()
         PrescriptionItem.objects.filter(pk=item.pk).update(
             instructions_transcript_raw=transcript,
-            instructions_transcript_edited=transcript,
             transcription_status=TranscriptionStatusChoices.COMPLETED,
             transcription_provider=result["provider"],
             transcription_completed_at=completed_at,
@@ -510,6 +716,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 "approved_instruction_text": None,
                 "provider": result["provider"],
                 "model": result["model"],
+                "audio_url": media_url(request, item.instructions_audio),
                 "detail": "Audio transcribed successfully",
             }
         )
@@ -519,23 +726,24 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_draft_response(prescription)
+        if blocked is not None:
+            return blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._item_not_found_response()
 
         serializer = ApproveTranscriptSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return serializer_error_response(serializer)
         approved_text = serializer.validated_data["approved_instruction_text"]
         item.instructions_transcript_edited = approved_text
-        item.instructions_text = approved_text
         item.transcription_status = TranscriptionStatusChoices.COMPLETED
         item.save(
             update_fields=[
                 "instructions_transcript_edited",
-                "instructions_text",
                 "transcription_status",
                 "updated_at",
             ]
@@ -549,7 +757,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             {
                 "item_id": item.id,
                 "raw_transcript": item.instructions_transcript_raw,
-                "approved_instruction_text": item.instructions_text,
+                "approved_instruction_text": item.instructions_transcript_edited,
                 "transcription_status": "approved",
                 "detail": "Transcript approved successfully",
             }
@@ -560,15 +768,17 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_sign_generation_prescription(prescription)
+            return self._not_found_response()
+        blocked = self._ensure_sign_generation_response(prescription)
+        if blocked is not None:
+            return blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return self._item_not_found_response()
 
         source_text = (
-            item.instructions_text.strip()
+            item.instructions_transcript_edited.strip()
             or item.instructions_transcript_raw.strip()
             or item.instructions_text.strip()
         )
@@ -581,6 +791,19 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "sign_status": item.sign_status,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not settings.GEMINI_API_KEY:
+            mark_prescription_item_sign_failed(item)
+            item.refresh_from_db()
+            return Response(
+                {
+                    "detail": "Gloss generation provider is not configured",
+                    "code": "gloss_provider_not_configured",
+                    "item_id": item.id,
+                    "sign_status": item.sign_status,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         mark_prescription_item_sign_processing(item)
@@ -622,24 +845,75 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        ensure_draft_prescription(prescription)
+            return self._not_found_response()
         serializer = PharmacistPrescriptionSubmitSerializer(
             data=request.data or {},
             context={"prescription": prescription},
         )
-        serializer.is_valid(raise_exception=True)
-        prescription.status = PrescriptionStatusChoices.SUBMITTED
-        prescription.submitted_at = timezone.now()
-        prescription.save(update_fields=["status", "submitted_at", "updated_at"])
-        return Response(
-            {
-                "detail": "Prescription submitted successfully.",
-                "prescription": PharmacistPrescriptionSerializer(
-                    prescription,
-                    context={"request": request},
-                ).data,
-            }
+        if not serializer.is_valid():
+            return prescription_error(
+                "Prescription must include at least one item before submission",
+                "prescription_has_no_items",
+            )
+        return self._transition_prescription(
+            prescription,
+            PrescriptionStatusChoices.SUBMITTED,
+            "Prescription submitted successfully",
+        )
+
+    def confirm(self, request, prescription_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return self._not_found_response()
+        response = self._transition_prescription(
+            prescription,
+            PrescriptionStatusChoices.CONFIRMED,
+            "Prescription confirmed successfully",
+        )
+        if response.status_code == status.HTTP_200_OK:
+            log_prescription_access(
+                prescription,
+                request.user,
+                PrescriptionAccessTypeChoices.CONFIRM,
+            )
+        return response
+
+    def deliver(self, request, prescription_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return self._not_found_response()
+        return self._transition_prescription(
+            prescription,
+            PrescriptionStatusChoices.DELIVERED,
+            "Prescription delivered successfully",
+        )
+
+    def cancel(self, request, prescription_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return self._not_found_response()
+        return self._transition_prescription(
+            prescription,
+            PrescriptionStatusChoices.CANCELLED,
+            "Prescription cancelled successfully",
+        )
+
+    def archive(self, request, prescription_id):
+        self._ensure_approved()
+        try:
+            prescription = self._get_prescription(prescription_id)
+        except Prescription.DoesNotExist:
+            return self._not_found_response()
+        return self._transition_prescription(
+            prescription,
+            PrescriptionStatusChoices.ARCHIVED,
+            "Prescription archived successfully",
         )
 
 
@@ -667,7 +941,7 @@ class PatientPrescriptionViewSet(
         )
         include_drafts = self.request.query_params.get("include_drafts") == "true"
         if not include_drafts:
-            queryset = queryset.filter(status=PrescriptionStatusChoices.SUBMITTED)
+            queryset = queryset.exclude(status=PrescriptionStatusChoices.DRAFT)
         return queryset
 
     def retrieve(self, request, *args, **kwargs):
