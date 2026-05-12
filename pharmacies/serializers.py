@@ -105,6 +105,34 @@ class PharmacyCompatSerializer(serializers.Serializer):
         return instance
 
 
+class SafePharmacySerializer(serializers.ModelSerializer):
+    city = serializers.SerializerMethodField()
+    region = serializers.SerializerMethodField()
+    latitude = serializers.FloatField(read_only=True)
+    longitude = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = Pharmacy
+        fields = (
+            "id",
+            "name",
+            "city",
+            "region",
+            "address",
+            "phone_number",
+            "latitude",
+            "longitude",
+            "is_contracted_with_organization",
+        )
+        read_only_fields = fields
+
+    def get_city(self, obj):
+        return ""
+
+    def get_region(self, obj):
+        return ""
+
+
 class PharmacistProfileSerializer(serializers.ModelSerializer):
     pharmacy = PharmacySerializer(read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
@@ -142,8 +170,17 @@ class PharmacistRegisterSerializer(serializers.Serializer):
     )
     full_name = serializers.CharField(max_length=255, required=False)
     name = serializers.CharField(max_length=255, required=False, write_only=True)
-    pharmacy_name = serializers.CharField(max_length=255)
-    pharmacy_address = serializers.CharField(max_length=255)
+    pharmacy_id = serializers.IntegerField(required=False, write_only=True)
+    pharmacy_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
+    pharmacy_address = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
     pharmacy_phone_number = serializers.CharField(required=False, allow_blank=True)
     latitude = serializers.DecimalField(
         max_digits=9,
@@ -221,6 +258,35 @@ class PharmacistRegisterSerializer(serializers.Serializer):
                     "license_number": "A pharmacist with this license number already exists."
                 }
             )
+        pharmacy = None
+        pharmacy_id = attrs.get("pharmacy_id")
+        if pharmacy_id is not None:
+            try:
+                pharmacy = Pharmacy.objects.get(pk=pharmacy_id)
+            except Pharmacy.DoesNotExist:
+                raise serializers.ValidationError(
+                    {
+                        "detail": "Selected pharmacy was not found.",
+                        "code": "pharmacy_not_found",
+                    }
+                )
+            if not pharmacy.is_contracted_with_organization:
+                raise serializers.ValidationError(
+                    {
+                        "detail": "Selected pharmacy is not contracted.",
+                        "code": "pharmacy_not_contracted",
+                    }
+                )
+        elif not attrs.get("pharmacy_name") or not attrs.get("pharmacy_address"):
+            raise serializers.ValidationError(
+                {
+                    "detail": "pharmacy_id is required.",
+                    "code": "missing_required_field",
+                    "fields": {
+                        "pharmacy_id": "This field is required.",
+                    },
+                }
+            )
         validate_registration_otp(
             phone_number,
             attrs["otp"],
@@ -229,6 +295,8 @@ class PharmacistRegisterSerializer(serializers.Serializer):
         attrs["full_name"] = full_name
         attrs["phone_number"] = phone_number
         attrs["license_number"] = license_number
+        if pharmacy is not None:
+            attrs["pharmacy"] = pharmacy
         return attrs
 
     @transaction.atomic
@@ -238,13 +306,17 @@ class PharmacistRegisterSerializer(serializers.Serializer):
         validated_data.pop("license_id", None)
         validated_data.pop("confirm_password", None)
         validated_data.pop("otp", None)
-        pharmacy = Pharmacy.objects.create(
-            name=validated_data["pharmacy_name"],
-            address=validated_data["pharmacy_address"],
-            phone_number=validated_data.get("pharmacy_phone_number", ""),
-            latitude=validated_data.get("latitude"),
-            longitude=validated_data.get("longitude"),
-        )
+        pharmacy = validated_data.pop("pharmacy", None)
+        selected_existing_pharmacy = pharmacy is not None
+        validated_data.pop("pharmacy_id", None)
+        if pharmacy is None:
+            pharmacy = Pharmacy.objects.create(
+                name=validated_data["pharmacy_name"],
+                address=validated_data["pharmacy_address"],
+                phone_number=validated_data.get("pharmacy_phone_number", ""),
+                latitude=validated_data.get("latitude"),
+                longitude=validated_data.get("longitude"),
+            )
         user = User.objects.create_user(
             email=validated_data.get("email") or None,
             password=validated_data["password"],
@@ -260,8 +332,9 @@ class PharmacistRegisterSerializer(serializers.Serializer):
             full_name=validated_data["full_name"],
             license_number=validated_data.get("license_number", ""),
         )
-        pharmacy.owner_user = user
-        pharmacy.save(update_fields=["owner_user", "updated_at"])
+        if not selected_existing_pharmacy:
+            pharmacy.owner_user = user
+            pharmacy.save(update_fields=["owner_user", "updated_at"])
         return profile
 
     def to_response(self, profile):

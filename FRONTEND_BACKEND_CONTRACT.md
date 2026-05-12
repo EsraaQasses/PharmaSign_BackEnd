@@ -70,6 +70,7 @@ Authentication: protected endpoints in this document require a Bearer JWT access
 Frontend notes:
 
 - Response fields use frontend names: `medication_name`, `instructions`, `raw_transcript`, `approved_instruction_text`, `gloss_text`.
+- `medication_name` is canonical for frontend send/read behavior. Backend still accepts `medicine_name` as a legacy input alias for item create/update.
 - Existing backend request names remain accepted where possible: `medicine_name` and `instructions_text`.
 - `video_url` is `null` in Phase 1. Video generation is not supported in this phase.
 - `gloss_text` and `supporting_text` currently contain the same generated gloss text.
@@ -78,6 +79,158 @@ Frontend notes:
 - Frontend displays each specialty `label` and sends the selected `value` as `doctor_specialty`.
 - If the user selects `أخرى`, frontend may send the custom typed specialty string as `doctor_specialty`.
 - Backend does not reject custom free-text `doctor_specialty` values in Phase 1.
+
+## Pharmacy Selection, Patient Pharmacies, and Item Pricing
+
+Prescription item create/update endpoints accept `price` and `quantity`.
+
+- `price`: decimal string/number, max 10 digits and 2 decimals, optional. Omitted values keep the model default `0.00`. Negative values are rejected.
+- `quantity`: integer or `null`, optional. Omitted values keep the model default `null`. Negative values are rejected.
+- Supported endpoints: `POST /api/pharmacist/prescriptions/<prescription_id>/items/`, `PATCH /api/pharmacist/prescriptions/<prescription_id>/items/<item_id>/`, and nested `items` on `POST /api/pharmacist/prescriptions/`.
+- Item responses include `medication_name`, `price`, `quantity`, `image_url`, `audio_url`, `video_url`, transcription fields, `gloss_text`, and `supporting_text`.
+- `video_url` remains `null` while gloss-only mode is active. Sign video/avatar generation is future work.
+
+Canonical medication naming:
+
+- Frontend should send and read `medication_name`.
+- Backend accepts `medicine_name` as a legacy input alias for create/update compatibility.
+- Backend item contract responses use `medication_name`.
+
+Public pharmacist registration selector:
+
+`GET /api/auth/contracted-pharmacies/`
+
+- Auth: public (`AllowAny`).
+- Method: GET only.
+- Returns only pharmacies where `is_contracted_with_organization = true`.
+- Response is a plain array, not paginated.
+- Safe selector fields only: `id`, `name`, `city`, `region`, `address`, `phone_number`, `latitude`, `longitude`, `is_contracted_with_organization`.
+- `city` and `region` are returned as empty strings because they are not current `Pharmacy` model fields.
+
+Pharmacist registration should prefer an existing contracted pharmacy:
+
+```json
+{
+  "full_name": "اسم الصيدلي",
+  "phone_number": "09xxxxxxxx",
+  "license_number": "PH-12345",
+  "pharmacy_id": 1,
+  "password": "********",
+  "otp": "123456"
+}
+```
+
+- `pharmacy_id` must exist and point to a contracted pharmacy.
+- When `pharmacy_id` is provided, backend links `PharmacistProfile.pharmacy` to that pharmacy and does not create a duplicate pharmacy.
+- Legacy `pharmacy_name` and `pharmacy_address` registration fields remain accepted as fallback for now.
+- If neither `pharmacy_id` nor legacy pharmacy fields are provided, backend returns `code: "missing_required_field"` with `fields.pharmacy_id`.
+
+Patient pharmacy map endpoint:
+
+`GET /api/patients/pharmacies/`
+
+- Auth: patient JWT required.
+- Method: GET only.
+- Returns only contracted pharmacies.
+- Response is a plain array, not paginated.
+- Includes coordinates when present.
+- Does not allow create/update/delete and does not return sensitive/admin-only fields.
+
+## Phase 6 — Sign Quality Reports
+
+Patients can report that a prescription item sign output is unclear. This is a quality follow-up signal only.
+
+Important behavior:
+
+- Reporting an unclear sign does not change prescription status.
+- Reporting does not change item `sign_status`.
+- Reporting does not block delivery or dispensing.
+- Reporting does not require pharmacist/admin approval before delivery.
+- Sign video/avatar generation remains unsupported in this phase.
+
+Patient endpoint:
+
+`POST /api/patients/me/prescriptions/items/<item_id>/report-sign-issue/`
+
+Auth/role: patient JWT required.
+
+Request body:
+
+```json
+{
+  "report_type": "sign_unclear"
+}
+```
+
+The Arabic frontend value is also accepted:
+
+```json
+{
+  "report_type": "الإشارة غير واضحة"
+}
+```
+
+Success response, `201 Created`:
+
+```json
+{
+  "detail": "Sign quality report submitted successfully",
+  "report": {
+    "id": 1,
+    "prescription": 10,
+    "prescription_item": 25,
+    "medicine_name": "Paracetamol",
+    "approved_instruction_text": "خذ حبة بعد الطعام",
+    "report_type": "sign_unclear",
+    "status": "open",
+    "created_at": "2026-05-12T12:00:00Z"
+  }
+}
+```
+
+Duplicate behavior:
+
+- Backend prevents duplicate open reports for the same patient, item, and report type.
+- If an open report already exists, backend returns `200 OK` with the existing report:
+
+```json
+{
+  "detail": "Sign quality report already exists",
+  "code": "sign_quality_report_exists",
+  "report": {
+    "id": 1,
+    "prescription": 10,
+    "prescription_item": 25,
+    "medicine_name": "Paracetamol",
+    "approved_instruction_text": "خذ حبة بعد الطعام",
+    "report_type": "sign_unclear",
+    "status": "open",
+    "created_at": "2026-05-12T12:00:00Z"
+  }
+}
+```
+
+Error codes:
+
+- `item_not_found`: item does not exist or does not belong to the authenticated patient.
+- `invalid_report_type`: unsupported `report_type`.
+- `prescription_permission_denied`: reserved for permission failures where the item/prescription is known.
+- `prescription_not_found`: reserved for prescription-scoped report flows.
+
+Admin endpoints:
+
+`GET /api/admin/sign-quality-reports/`
+
+- Auth/role: admin or organization staff with patient-management permission.
+- Returns a DRF paginated list.
+- Supports optional filters: `status`, `report_type`, `patient_id`, `prescription_id`.
+- Fields include report id, patient summary, prescription id, prescription item id, medicine snapshot, instruction snapshot, report type, status, and created time.
+
+`PATCH /api/admin/sign-quality-reports/<id>/`
+
+- Auth/role: admin or organization staff with patient-management permission.
+- Allowed field: `status`.
+- Allowed values: `open`, `reviewed`, `resolved`, `dismissed`.
 
 ## GET `/api/pharmacist/prescriptions/doctor-specialties/`
 

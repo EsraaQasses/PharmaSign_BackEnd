@@ -642,6 +642,109 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertFalse(user.pharmacist_profile.is_approved)
 
     @override_settings(DEBUG=True)
+    def test_pharmacist_register_with_pharmacy_id_links_existing_pharmacy(self):
+        organization = Organization.objects.create(name="Registration Pharmacy Org")
+        pharmacy = Pharmacy.objects.create(
+            name="Existing Contracted Pharmacy",
+            address="Damascus",
+            organization=organization,
+            is_contracted_with_organization=True,
+        )
+        otp = self.request_role_registration_otp("pharmacist", "5557040")
+        pharmacy_count = Pharmacy.objects.count()
+
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Register Pharmacist By Pharmacy",
+                "phone_number": "5557040",
+                "license_number": "LIC-7040",
+                "pharmacy_id": pharmacy.id,
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Pharmacy.objects.count(), pharmacy_count)
+        user = User.objects.get(phone_number="5557040")
+        self.assertEqual(user.pharmacist_profile.pharmacy_id, pharmacy.id)
+        pharmacy.refresh_from_db()
+        self.assertIsNone(pharmacy.owner_user)
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_register_invalid_pharmacy_id_fails(self):
+        otp = self.request_role_registration_otp("pharmacist", "5557041")
+
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Invalid Pharmacy Pharmacist",
+                "phone_number": "5557041",
+                "license_number": "LIC-7041",
+                "pharmacy_id": 999999,
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "pharmacy_not_found")
+        self.assertEqual(response.data["detail"], "Selected pharmacy was not found.")
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_register_non_contracted_pharmacy_id_fails(self):
+        pharmacy = Pharmacy.objects.create(
+            name="Non Contracted Registration Pharmacy",
+            address="Damascus",
+            is_contracted_with_organization=False,
+        )
+        otp = self.request_role_registration_otp("pharmacist", "5557042")
+
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Non Contracted Pharmacist",
+                "phone_number": "5557042",
+                "license_number": "LIC-7042",
+                "pharmacy_id": pharmacy.id,
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "pharmacy_not_contracted")
+        self.assertEqual(response.data["detail"], "Selected pharmacy is not contracted.")
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_register_without_pharmacy_id_or_legacy_fields_fails(self):
+        otp = self.request_role_registration_otp("pharmacist", "5557043")
+
+        response = self.client.post(
+            reverse("accounts:pharmacist_register"),
+            {
+                "password": "StrongPass123!",
+                "full_name": "Missing Pharmacy Pharmacist",
+                "phone_number": "5557043",
+                "license_number": "LIC-7043",
+                "otp": otp,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "missing_required_field")
+        self.assertEqual(response.data["detail"], "pharmacy_id is required.")
+        self.assertEqual(
+            response.data["fields"]["pharmacy_id"],
+            "This field is required.",
+        )
+
+    @override_settings(DEBUG=True)
     def test_pharmacist_register_requires_otp(self):
         response = self.client.post(
             reverse("accounts:pharmacist_register"),

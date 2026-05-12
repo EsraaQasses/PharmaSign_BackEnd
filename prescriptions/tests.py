@@ -26,7 +26,12 @@ from pharmacies.models import PharmacistProfile, Pharmacy
 from transcriptions.exceptions import AudioTranscriptionError
 
 from .constants import DOCTOR_SPECIALTY_LABELS
-from .models import Prescription, PrescriptionAccessLog, PrescriptionItem
+from .models import (
+    Prescription,
+    PrescriptionAccessLog,
+    PrescriptionItem,
+    SignQualityReport,
+)
 from .services import SignGenerationError
 
 
@@ -157,6 +162,283 @@ class PrescriptionPermissionTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class SignQualityReportTests(APITestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Quality Org")
+        self.patient_user = User.objects.create_user(
+            email="quality.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            phone_number="7100001",
+        )
+        self.patient = PatientProfile.objects.create(
+            user=self.patient_user,
+            organization=self.organization,
+            full_name="Quality Patient",
+            phone_number="7100001",
+        )
+        self.other_patient_user = User.objects.create_user(
+            email="quality.other.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            phone_number="7100002",
+        )
+        self.other_patient = PatientProfile.objects.create(
+            user=self.other_patient_user,
+            organization=self.organization,
+            full_name="Other Quality Patient",
+            phone_number="7100002",
+        )
+        self.pharmacist_user = User.objects.create_user(
+            email="quality.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+            phone_number="7100003",
+        )
+        self.pharmacy = Pharmacy.objects.create(
+            name="Quality Pharmacy",
+            address="Damascus",
+            organization=self.organization,
+            is_contracted_with_organization=True,
+        )
+        self.pharmacist = PharmacistProfile.objects.create(
+            user=self.pharmacist_user,
+            pharmacy=self.pharmacy,
+            full_name="Quality Pharmacist",
+            is_approved=True,
+        )
+        self.prescription = Prescription.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name="Quality Doctor",
+            status=PrescriptionStatusChoices.SUBMITTED,
+        )
+        self.item = PrescriptionItem.objects.create(
+            prescription=self.prescription,
+            medicine_name="Snapshot Med",
+            instructions_text="Instruction fallback",
+            instructions_transcript_raw="Raw transcript fallback",
+            instructions_transcript_edited="Approved instruction snapshot",
+            supporting_text="Generated gloss",
+            sign_status=SignStatusChoices.COMPLETED,
+        )
+
+    def report_url(self, item=None):
+        return reverse(
+            "patient-report-sign-issue",
+            kwargs={"item_id": (item or self.item).id},
+        )
+
+    def test_patient_can_report_own_prescription_item(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        report = SignQualityReport.objects.get()
+        self.assertEqual(report.patient, self.patient)
+        self.assertEqual(report.prescription, self.prescription)
+        self.assertEqual(report.prescription_item, self.item)
+        self.assertEqual(response.data["report"]["report_type"], "sign_unclear")
+        self.assertEqual(response.data["report"]["status"], "open")
+
+    def test_patient_can_report_with_arabic_report_type_alias(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "الإشارة غير واضحة"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["report"]["report_type"], "sign_unclear")
+
+    def test_patient_cannot_report_another_patients_item(self):
+        self.client.force_authenticate(self.other_patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "item_not_found")
+        self.assertFalse(SignQualityReport.objects.exists())
+
+    def test_unauthenticated_report_request_fails(self):
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_pharmacist_cannot_use_patient_report_endpoint(self):
+        self.client.force_authenticate(self.pharmacist_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(SignQualityReport.objects.exists())
+
+    def test_duplicate_open_report_returns_existing_report(self):
+        self.client.force_authenticate(self.patient_user)
+        first_response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        duplicate_response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(duplicate_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(duplicate_response.data["code"], "sign_quality_report_exists")
+        self.assertEqual(SignQualityReport.objects.count(), 1)
+        self.assertEqual(
+            duplicate_response.data["report"]["id"],
+            first_response.data["report"]["id"],
+        )
+
+    def test_invalid_report_type_fails(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "other"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "invalid_report_type")
+
+    def test_report_stores_item_snapshots_and_does_not_mutate_sources(self):
+        original_prescription_status = self.prescription.status
+        original_sign_status = self.item.sign_status
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        report = SignQualityReport.objects.get()
+        self.assertEqual(report.medicine_name, "Snapshot Med")
+        self.assertEqual(
+            report.approved_instruction_text,
+            "Approved instruction snapshot",
+        )
+        self.prescription.refresh_from_db()
+        self.item.refresh_from_db()
+        self.assertEqual(self.prescription.status, original_prescription_status)
+        self.assertEqual(self.item.sign_status, original_sign_status)
+
+    def test_report_snapshot_falls_back_to_raw_transcript(self):
+        self.item.instructions_transcript_edited = ""
+        self.item.save(update_fields=["instructions_transcript_edited", "updated_at"])
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.post(
+            self.report_url(),
+            {"report_type": "sign_unclear"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            SignQualityReport.objects.get().approved_instruction_text,
+            "Raw transcript fallback",
+        )
+
+    def test_admin_can_list_reports(self):
+        report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            approved_instruction_text=self.item.instructions_transcript_edited,
+            report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        )
+        admin_user = User.objects.create_user(
+            email="quality.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=self.organization,
+            can_manage_patients=True,
+            can_manage_pharmacists=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get(reverse("admin-sign-quality-report-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"][0]["id"], report.id)
+        self.assertEqual(response.data["results"][0]["patient"]["id"], self.patient.id)
+        self.assertEqual(response.data["results"][0]["medicine_name"], "Snapshot Med")
+
+    def test_admin_can_update_report_status(self):
+        report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            approved_instruction_text=self.item.instructions_transcript_edited,
+            report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        )
+        admin_user = User.objects.create_user(
+            email="quality.admin.update@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=self.organization,
+            can_manage_patients=True,
+            can_manage_pharmacists=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.patch(
+            reverse("admin-sign-quality-report-detail", kwargs={"pk": report.id}),
+            {"status": SignQualityReport.STATUS_REVIEWED},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        report.refresh_from_db()
+        self.assertEqual(report.status, SignQualityReport.STATUS_REVIEWED)
+
+    def test_non_admin_cannot_list_reports(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("admin-sign-quality-report-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class PharmacistPrescriptionMVPTests(APITestCase):
@@ -1049,6 +1331,167 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertIsNone(response.data["image_url"])
         self.assertIsNone(response.data["audio_url"])
         self.assertIsNone(response.data["video_url"])
+
+    def test_pharmacist_can_create_item_with_price_and_quantity(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Priced Med",
+                "price": "12.50",
+                "quantity": 3,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["medication_name"], "Priced Med")
+        self.assertEqual(response.data["price"], "12.50")
+        self.assertEqual(response.data["quantity"], 3)
+        item = prescription.items.get(pk=response.data["id"])
+        self.assertEqual(str(item.price), "12.50")
+        self.assertEqual(item.quantity, 3)
+
+    def test_pharmacist_can_update_item_with_price_and_quantity(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {
+                "price": "8.75",
+                "quantity": 2,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["price"], "8.75")
+        self.assertEqual(response.data["quantity"], 2)
+        item.refresh_from_db()
+        self.assertEqual(str(item.price), "8.75")
+        self.assertEqual(item.quantity, 2)
+
+    def test_nested_prescription_create_saves_item_price_and_quantity(self):
+        payload = self._create_payload(
+            items=[
+                {
+                    "medication_name": "Nested Priced Med",
+                    "price": "21.00",
+                    "quantity": 4,
+                }
+            ]
+        )
+
+        response = self.client.post(
+            reverse("pharmacist-prescriptions"),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["items"][0]["price"], "21.00")
+        self.assertEqual(response.data["items"][0]["quantity"], 4)
+        item = Prescription.objects.get(pk=response.data["id"]).items.get()
+        self.assertEqual(str(item.price), "21.00")
+        self.assertEqual(item.quantity, 4)
+
+    def test_omitted_item_price_and_quantity_keep_defaults(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {"medication_name": "Default Price Med"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["price"], "0.00")
+        self.assertIsNone(response.data["quantity"])
+        item = prescription.items.get(pk=response.data["id"])
+        self.assertEqual(str(item.price), "0.00")
+        self.assertIsNone(item.quantity)
+
+    def test_negative_item_price_fails(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Bad Price Med",
+                "price": "-1.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("price", response.data)
+
+    def test_negative_item_quantity_fails(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Bad Quantity Med",
+                "quantity": -1,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("quantity", response.data)
+
+    def test_medicine_name_alias_still_creates_medication_name_response(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {"medicine_name": "Legacy Alias Med"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["medication_name"], "Legacy Alias Med")
+        self.assertNotIn("medicine_name", response.data)
+
+    def test_medicine_name_alias_still_updates_medication_name_response(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"medicine_name": "Updated Legacy Alias Med"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["medication_name"], "Updated Legacy Alias Med")
+        self.assertNotIn("medicine_name", response.data)
+        item.refresh_from_db()
+        self.assertEqual(item.medicine_name, "Updated Legacy Alias Med")
 
     def test_pharmacist_can_create_item_with_image_upload(self):
         prescription = self._create_prescription(with_item=False)

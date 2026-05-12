@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from .models import Prescription, PrescriptionAccessLog, PrescriptionItem
+from .models import (
+    Prescription,
+    PrescriptionAccessLog,
+    PrescriptionItem,
+    SignQualityReport,
+)
 
 
 class PrescriptionItemInline(admin.TabularInline):
@@ -39,3 +44,19 @@ class PrescriptionAccessLogAdmin(admin.ModelAdmin):
     list_filter = ('access_type', 'timestamp')
     search_fields = ('prescription__patient__full_name', 'accessed_by__email')
     autocomplete_fields = ('prescription', 'accessed_by')
+
+
+@admin.register(SignQualityReport)
+class SignQualityReportAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'patient',
+        'prescription',
+        'prescription_item',
+        'report_type',
+        'status',
+        'created_at',
+    )
+    list_filter = ('report_type', 'status', 'created_at')
+    search_fields = ('medicine_name', 'patient__full_name')
+    autocomplete_fields = ('patient', 'prescription', 'prescription_item')

@@ -1,11 +1,12 @@
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from common.permissions import (
     CanManagePharmacists,
     IsPharmacistRole,
+    IsPatientRole,
 )
 from common.choices import RoleChoices
 
@@ -15,6 +16,7 @@ from .serializers import (
     PharmacistProfileSerializer,
     PharmacyCompatSerializer,
     PharmacySerializer,
+    SafePharmacySerializer,
 )
 
 
@@ -54,6 +56,30 @@ class PharmacyViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class PublicContractedPharmacyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = SafePharmacySerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        return Pharmacy.objects.filter(
+            is_contracted_with_organization=True
+        ).order_by("name")
+
+
+class PatientPharmacyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = SafePharmacySerializer
+    permission_classes = [IsAuthenticated, IsPatientRole]
+    pagination_class = None
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        return Pharmacy.objects.filter(
+            is_contracted_with_organization=True
+        ).order_by("name")
 
 
 class PharmacistProfileViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):

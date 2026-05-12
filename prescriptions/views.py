@@ -3,6 +3,7 @@ import os
 import tempfile
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count
 from django.utils import timezone
 from rest_framework import mixins, parsers, status, viewsets
@@ -27,8 +28,10 @@ from common.permissions import (
 )
 
 from .constants import DOCTOR_SPECIALTY_OPTIONS
-from .models import Prescription, PrescriptionItem
+from .models import Prescription, PrescriptionItem, SignQualityReport
 from .serializers import (
+    AdminSignQualityReportSerializer,
+    AdminSignQualityReportUpdateSerializer,
     ApproveTranscriptSerializer,
     PharmacistPrescriptionCreateSerializer,
     PharmacistPrescriptionItemAudioTranscriptionSerializer,
@@ -38,6 +41,7 @@ from .serializers import (
     PharmacistPrescriptionSerializer,
     PharmacistPrescriptionSubmitSerializer,
     PharmacistPrescriptionUpdateSerializer,
+    PatientSignQualityReportCreateSerializer,
     PrescriptionConfirmSerializer,
     PrescriptionCreateSerializer,
     PrescriptionItemCreateSerializer,
@@ -45,6 +49,7 @@ from .serializers import (
     PrescriptionItemTranscriptionRequestSerializer,
     PrescriptionItemUpdateSerializer,
     PrescriptionSerializer,
+    SignQualityReportSerializer,
 )
 from .services import (
     SignGenerationError,
@@ -953,3 +958,135 @@ class PatientPrescriptionViewSet(
         )
         serializer = self.get_serializer(prescription)
         return Response(serializer.data)
+
+
+class PatientSignQualityReportViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsPatientRole]
+    http_method_names = ["post", "head", "options"]
+
+    def _report_response(self, report):
+        return SignQualityReportSerializer(report).data
+
+    def create(self, request, item_id):
+        patient_profile = getattr(request.user, "patient_profile", None)
+        if patient_profile is None:
+            return prescription_error(
+                "Item not found",
+                "item_not_found",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            item = PrescriptionItem.objects.select_related(
+                "prescription",
+                "prescription__patient",
+            ).get(pk=item_id, prescription__patient=patient_profile)
+        except PrescriptionItem.DoesNotExist:
+            return prescription_error(
+                "Item not found",
+                "item_not_found",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = PatientSignQualityReportCreateSerializer(data=request.data or {})
+        if not serializer.is_valid():
+            return serializer_error_response(serializer)
+        report_type = serializer.validated_data["report_type"]
+
+        existing_report = SignQualityReport.objects.filter(
+            patient=patient_profile,
+            prescription_item=item,
+            report_type=report_type,
+            status=SignQualityReport.STATUS_OPEN,
+        ).first()
+        if existing_report:
+            return Response(
+                {
+                    "detail": "Sign quality report already exists",
+                    "code": "sign_quality_report_exists",
+                    "report": self._report_response(existing_report),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        approved_instruction_text = (
+            item.instructions_transcript_edited.strip()
+            or item.instructions_transcript_raw.strip()
+            or item.instructions_text.strip()
+        )
+        try:
+            report = SignQualityReport.objects.create(
+                patient=patient_profile,
+                prescription=item.prescription,
+                prescription_item=item,
+                medicine_name=item.medicine_name,
+                approved_instruction_text=approved_instruction_text,
+                report_type=report_type,
+                status=SignQualityReport.STATUS_OPEN,
+            )
+        except IntegrityError:
+            report = SignQualityReport.objects.get(
+                patient=patient_profile,
+                prescription_item=item,
+                report_type=report_type,
+                status=SignQualityReport.STATUS_OPEN,
+            )
+            return Response(
+                {
+                    "detail": "Sign quality report already exists",
+                    "code": "sign_quality_report_exists",
+                    "report": self._report_response(report),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "detail": "Sign quality report submitted successfully",
+                "report": self._report_response(report),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminSignQualityReportViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [IsAuthenticated, CanManagePatients]
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action == "partial_update":
+            return AdminSignQualityReportUpdateSerializer
+        return AdminSignQualityReportSerializer
+
+    def get_queryset(self):
+        queryset = SignQualityReport.objects.select_related(
+            "patient",
+            "patient__user",
+            "patient__organization",
+            "prescription",
+            "prescription_item",
+        )
+        user = self.request.user
+        if not has_patient_management_access(user):
+            return queryset.none()
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if not user.is_superuser and staff_profile is not None:
+            queryset = queryset.filter(patient__organization=staff_profile.organization)
+
+        report_status = self.request.query_params.get("status")
+        report_type = self.request.query_params.get("report_type")
+        patient_id = self.request.query_params.get("patient_id")
+        prescription_id = self.request.query_params.get("prescription_id")
+        if report_status:
+            queryset = queryset.filter(status=report_status)
+        if report_type:
+            queryset = queryset.filter(report_type=report_type)
+        if patient_id:
+            queryset = queryset.filter(patient_id=patient_id)
+        if prescription_id:
+            queryset = queryset.filter(prescription_id=prescription_id)
+        return queryset

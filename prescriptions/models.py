@@ -179,6 +179,72 @@ class PrescriptionItem(TimeStampedModel):
         return self.medicine_name
 
 
+class SignQualityReport(TimeStampedModel):
+    REPORT_TYPE_SIGN_UNCLEAR = "sign_unclear"
+
+    STATUS_OPEN = "open"
+    STATUS_REVIEWED = "reviewed"
+    STATUS_RESOLVED = "resolved"
+    STATUS_DISMISSED = "dismissed"
+
+    REPORT_TYPE_CHOICES = (
+        (REPORT_TYPE_SIGN_UNCLEAR, "Sign unclear"),
+    )
+    STATUS_CHOICES = (
+        (STATUS_OPEN, "Open"),
+        (STATUS_REVIEWED, "Reviewed"),
+        (STATUS_RESOLVED, "Resolved"),
+        (STATUS_DISMISSED, "Dismissed"),
+    )
+
+    patient = models.ForeignKey(
+        PatientProfile,
+        on_delete=models.CASCADE,
+        related_name="sign_quality_reports",
+    )
+    prescription = models.ForeignKey(
+        Prescription,
+        on_delete=models.CASCADE,
+        related_name="sign_quality_reports",
+    )
+    prescription_item = models.ForeignKey(
+        PrescriptionItem,
+        on_delete=models.CASCADE,
+        related_name="sign_quality_reports",
+    )
+    medicine_name = models.CharField(max_length=255)
+    approved_instruction_text = models.TextField(blank=True)
+    report_type = models.CharField(
+        max_length=50,
+        choices=REPORT_TYPE_CHOICES,
+        default=REPORT_TYPE_SIGN_UNCLEAR,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_OPEN,
+    )
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["patient", "status"]),
+            models.Index(fields=["prescription", "status"]),
+            models.Index(fields=["prescription_item", "report_type", "status"]),
+            models.Index(fields=["report_type", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["patient", "prescription_item", "report_type"],
+                condition=models.Q(status="open"),
+                name="unique_open_sign_quality_report",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.medicine_name} - {self.report_type} - {self.status}"
+
+
 class PrescriptionAccessLog(models.Model):
     prescription = models.ForeignKey(
         Prescription,

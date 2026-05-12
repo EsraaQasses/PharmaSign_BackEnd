@@ -103,3 +103,73 @@ class PharmacyPermissionTests(APITestCase):
         self.assertEqual(pharmacy.name, "After Pharmacy")
         self.assertEqual(pharmacy.phone_number, "222")
         self.assertEqual(patch_response.data["has_sign_service"], True)
+
+    def test_public_contracted_pharmacies_succeeds_without_auth_and_filters(self):
+        organization = Organization.objects.create(name="Public Contract Org")
+        contracted = Pharmacy.objects.create(
+            name="Contracted Selector Pharmacy",
+            address="Damascus Address",
+            phone_number="0111234567",
+            latitude="33.515200",
+            longitude="36.291200",
+            organization=organization,
+            is_contracted_with_organization=True,
+        )
+        Pharmacy.objects.create(
+            name="Hidden Non Contracted Pharmacy",
+            address="Hidden Address",
+        )
+
+        response = self.client.get(reverse("public-contracted-pharmacies"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.data, list)
+        self.assertEqual(len(response.data), 1)
+        payload = response.data[0]
+        self.assertEqual(payload["id"], contracted.id)
+        self.assertEqual(payload["name"], contracted.name)
+        self.assertEqual(payload["city"], "")
+        self.assertEqual(payload["region"], "")
+        self.assertEqual(payload["address"], contracted.address)
+        self.assertEqual(payload["phone_number"], contracted.phone_number)
+        self.assertEqual(payload["latitude"], 33.5152)
+        self.assertEqual(payload["longitude"], 36.2912)
+        self.assertTrue(payload["is_contracted_with_organization"])
+        self.assertNotIn("owner_user", payload)
+        self.assertNotIn("organization", payload)
+        self.assertNotIn("created_at", payload)
+        self.assertNotIn("updated_at", payload)
+
+    def test_patient_pharmacies_requires_patient_auth_and_filters(self):
+        organization = Organization.objects.create(name="Patient Pharmacy Org")
+        patient_user = User.objects.create_user(
+            email="patient.map@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        contracted = Pharmacy.objects.create(
+            name="Patient Map Pharmacy",
+            address="Map Address",
+            latitude="33.515200",
+            longitude="36.291200",
+            organization=organization,
+            is_contracted_with_organization=True,
+        )
+        Pharmacy.objects.create(
+            name="Non Contracted Map Pharmacy",
+            address="Hidden Address",
+        )
+
+        unauthenticated_response = self.client.get(reverse("patient-pharmacies"))
+        self.client.force_authenticate(patient_user)
+        response = self.client.get(reverse("patient-pharmacies"))
+
+        self.assertEqual(
+            unauthenticated_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], contracted.id)
+        self.assertEqual(response.data[0]["latitude"], 33.5152)
+        self.assertEqual(response.data[0]["longitude"], 36.2912)

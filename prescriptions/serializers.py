@@ -13,7 +13,7 @@ from common.uploads import (
 from patients.models import PatientProfile, PatientSession
 from transcriptions.validators import validate_transcription_audio_upload
 
-from .models import Prescription, PrescriptionItem
+from .models import Prescription, PrescriptionItem, SignQualityReport
 
 
 def build_prescription_patient_payload(patient):
@@ -198,6 +198,16 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
 
 
 class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Price must not be negative.")
+        return value
+
+    def validate_quantity(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Quantity must not be negative.")
+        return value
+
     def validate_medicine_image(self, value):
         if value:
             validate_image_upload(value)
@@ -235,6 +245,16 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
 
 
 class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Price must not be negative.")
+        return value
+
+    def validate_quantity(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Quantity must not be negative.")
+        return value
+
     def validate_medicine_image(self, value):
         if value:
             validate_image_upload(value)
@@ -367,6 +387,22 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
     image_file = serializers.FileField(required=False, write_only=True)
     medication_image = serializers.FileField(required=False, write_only=True)
     medicine_image = serializers.FileField(required=False, write_only=True)
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+    )
+    quantity = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Price must not be negative.")
+        return value
+
+    def validate_quantity(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Quantity must not be negative.")
+        return value
 
     def validate(self, attrs):
         medicine_name = attrs.pop("medication_name", None) or attrs.get("medicine_name")
@@ -600,3 +636,73 @@ class PharmacistPrescriptionSubmitSerializer(serializers.Serializer):
                 }
             )
         return attrs
+
+
+class SignQualityReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignQualityReport
+        fields = (
+            "id",
+            "prescription",
+            "prescription_item",
+            "medicine_name",
+            "approved_instruction_text",
+            "report_type",
+            "status",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class PatientSignQualityReportCreateSerializer(serializers.Serializer):
+    REPORT_TYPE_ALIASES = {
+        "sign_unclear": SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        "الإشارة غير واضحة": SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+    }
+
+    report_type = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_report_type(self, value):
+        value = value or SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR
+        try:
+            return self.REPORT_TYPE_ALIASES[value]
+        except KeyError:
+            raise stable_error("Invalid report type.", "invalid_report_type")
+
+    def validate(self, attrs):
+        if "report_type" not in attrs:
+            attrs["report_type"] = SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR
+        return attrs
+
+
+class AdminSignQualityReportSerializer(serializers.ModelSerializer):
+    patient = serializers.SerializerMethodField()
+    prescription = serializers.IntegerField(source="prescription_id", read_only=True)
+    prescription_item = serializers.IntegerField(
+        source="prescription_item_id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = SignQualityReport
+        fields = (
+            "id",
+            "patient",
+            "prescription",
+            "prescription_item",
+            "medicine_name",
+            "approved_instruction_text",
+            "report_type",
+            "status",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_patient(self, obj):
+        return build_prescription_patient_payload(obj.patient)
+
+
+class AdminSignQualityReportUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignQualityReport
+        fields = ("status",)
