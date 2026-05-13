@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from django.utils.crypto import get_random_string
 from rest_framework import serializers
 
@@ -7,7 +8,7 @@ from accounts.serializers import (
     build_compat_patient_profile_payload,
     build_compat_user_payload,
 )
-from common.choices import BloodTypeChoices, RoleChoices
+from common.choices import ApprovalStatusChoices, BloodTypeChoices, RoleChoices
 from .models import (
     PatientEnrollment,
     PatientLoginQR,
@@ -81,6 +82,241 @@ class PatientProfileSerializer(serializers.ModelSerializer):
     def get_enrollment_id(self, obj):
         enrollment = getattr(obj, "enrollment_record", None)
         return getattr(enrollment, "id", None)
+
+
+class AdminPatientMedicalInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PatientMedicalInfo
+        fields = (
+            "blood_type",
+            "chronic_conditions",
+            "allergies",
+            "is_pregnant",
+            "is_breastfeeding",
+            "notes",
+        )
+
+
+class AdminPatientSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    age = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
+    region = serializers.SerializerMethodField()
+    diagnosis = serializers.SerializerMethodField()
+    medical_info = serializers.SerializerMethodField()
+    account_status = serializers.SerializerMethodField()
+    qr = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PatientProfile
+        fields = (
+            "id",
+            "user_id",
+            "full_name",
+            "phone_number",
+            "email",
+            "gender",
+            "birth_date",
+            "age",
+            "address",
+            "city",
+            "region",
+            "hearing_disability_level",
+            "diagnosis",
+            "medical_info",
+            "account_status",
+            "qr",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_age(self, obj):
+        if obj.birth_date is None:
+            return None
+        today = timezone.localdate()
+        return (
+            today.year
+            - obj.birth_date.year
+            - ((today.month, today.day) < (obj.birth_date.month, obj.birth_date.day))
+        )
+
+    def get_city(self, obj):
+        return None
+
+    def get_region(self, obj):
+        return None
+
+    def get_diagnosis(self, obj):
+        return None
+
+    def get_medical_info(self, obj):
+        medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=obj)
+        return AdminPatientMedicalInfoSerializer(medical_info).data
+
+    def get_account_status(self, obj):
+        return {
+            "is_active": obj.user.is_active,
+            "approval_status": obj.user.approval_status,
+            "is_verified": obj.user.is_verified,
+        }
+
+    def get_qr(self, obj):
+        return {
+            "qr_code_value": obj.qr_code_value,
+            "qr_is_active": obj.qr_is_active,
+            "active_login_qr_exists": PatientLoginQR.objects.filter(
+                patient=obj,
+                is_active=True,
+                revoked_at__isnull=True,
+            ).exists(),
+        }
+
+
+class AdminPatientUpdateSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=255, required=False)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    birth_date = serializers.DateField(required=False, allow_null=True)
+    gender = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("gender").choices,
+        required=False,
+        allow_blank=True,
+    )
+    address = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    hearing_disability_level = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_disability_level").choices,
+        required=False,
+        allow_blank=True,
+    )
+    medical_info = AdminPatientMedicalInfoSerializer(required=False)
+    account_status = serializers.DictField(required=False)
+    user = serializers.DictField(required=False)
+
+    def validate_phone_number(self, value):
+        patient = self.instance
+        if (
+            value
+            and User.objects.filter(phone_number=value)
+            .exclude(pk=patient.user_id)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                "A user with this phone number already exists."
+            )
+        return value
+
+    def validate(self, attrs):
+        for status_container in ("account_status", "user"):
+            values = attrs.get(status_container) or {}
+            approval_status = values.get("approval_status")
+            if approval_status and approval_status not in ApprovalStatusChoices.values:
+                raise serializers.ValidationError(
+                    {
+                        status_container: {
+                            "approval_status": "Invalid approval status."
+                        }
+                    }
+                )
+        return attrs
+
+    def update(self, instance, validated_data):
+        request = self.context["request"]
+        medical_info_data = validated_data.pop("medical_info", None)
+        account_status_data = validated_data.pop("account_status", {}) or {}
+        user_data = validated_data.pop("user", {}) or {}
+
+        profile_fields = []
+        for field in (
+            "full_name",
+            "phone_number",
+            "birth_date",
+            "gender",
+            "address",
+            "hearing_disability_level",
+        ):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+                profile_fields.append(field)
+        if profile_fields:
+            profile_fields.append("updated_at")
+            instance.save(update_fields=profile_fields)
+
+        user = instance.user
+        user_fields = []
+        if "phone_number" in validated_data:
+            user.phone_number = validated_data["phone_number"]
+            user_fields.append("phone_number")
+
+        status_payload = {}
+        status_payload.update(user_data)
+        status_payload.update(account_status_data)
+        if "is_active" in status_payload:
+            user.is_active = bool(status_payload["is_active"])
+            user_fields.append("is_active")
+        if "approval_status" in status_payload:
+            user.approval_status = status_payload["approval_status"]
+            user_fields.append("approval_status")
+            if user.approval_status == ApprovalStatusChoices.APPROVED:
+                user.is_verified = True
+                user.approved_at = timezone.now()
+                user.approved_by = request.user
+                user.rejection_reason = ""
+                user_fields.extend(
+                    ["is_verified", "approved_at", "approved_by", "rejection_reason"]
+                )
+            elif user.approval_status == ApprovalStatusChoices.REJECTED:
+                user.is_verified = False
+                user_fields.append("is_verified")
+        if user_fields:
+            user_fields.append("updated_at")
+            user.save(update_fields=list(dict.fromkeys(user_fields)))
+
+        if medical_info_data is not None:
+            medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=instance)
+            medical_fields = []
+            for field, value in medical_info_data.items():
+                setattr(medical_info, field, value)
+                medical_fields.append(field)
+            if medical_fields:
+                medical_fields.append("updated_at")
+                medical_info.save(update_fields=medical_fields)
+
+        instance.refresh_from_db()
+        return instance
+
+
+class AdminPatientQRSerializer(serializers.ModelSerializer):
+    patient = serializers.SerializerMethodField()
+    value = serializers.CharField(source="qr_code_value", read_only=True)
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PatientProfile
+        fields = (
+            "id",
+            "patient",
+            "value",
+            "status",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_patient(self, obj):
+        return {
+            "id": obj.id,
+            "full_name": obj.full_name,
+            "phone_number": obj.phone_number or obj.user.phone_number or "",
+            "city": None,
+            "region": None,
+        }
+
+    def get_status(self, obj):
+        if obj.qr_is_active:
+            return "active"
+        if obj.qr_code_value:
+            return "disabled"
+        return "missing"
 
 
 class PatientSelfProfileSerializer(serializers.Serializer):

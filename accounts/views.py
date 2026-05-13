@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -15,9 +16,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.api_errors import error_response, validation_error_payload
 from common.choices import ApprovalStatusChoices, RoleChoices
+from common.permissions import is_admin_role
+from patients.models import PatientProfile
 from pharmacies.serializers import PharmacistRegisterSerializer
+from pharmacies.models import PharmacistProfile, Pharmacy
+from prescriptions.models import Prescription, SignQualityReport
 
 from .serializers import (
+    AdminAuthMeSerializer,
     AuthMeSerializer,
     ChangePasswordSerializer,
     LoginSerializer,
@@ -38,6 +44,7 @@ class AuthViewSet(viewsets.ViewSet):
         if self.action in {
             "pharmacist_register",
             "login",
+            "admin_login",
             "patient_self_register",
             "patient_register",
             "patient_register_request_otp",
@@ -140,6 +147,218 @@ class AuthViewSet(viewsets.ViewSet):
             status=status_code,
         )
 
+    def _build_admin_auth_response(self, user, status_code=status.HTTP_200_OK):
+        refresh = RefreshToken.for_user(user)
+        payload = AdminAuthMeSerializer(user).data
+        payload["access"] = str(refresh.access_token)
+        payload["refresh"] = str(refresh)
+        return Response(payload, status=status_code)
+
+    def _admin_denied_response(self):
+        return Response(
+            {
+                "detail": "Admin access is required.",
+                "code": "admin_access_required",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def _ensure_admin_response(self, user):
+        if not is_admin_role(user):
+            return self._admin_denied_response()
+        return None
+
+    def _manageable_dashboard_roles(self, user):
+        if user.is_superuser:
+            return [RoleChoices.PATIENT, RoleChoices.PHARMACIST]
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if staff_profile:
+            roles = []
+            if staff_profile.can_manage_patients:
+                roles.append(RoleChoices.PATIENT)
+            if staff_profile.can_manage_pharmacists:
+                roles.append(RoleChoices.PHARMACIST)
+            return roles
+        return [RoleChoices.PATIENT, RoleChoices.PHARMACIST]
+
+    def _admin_staff_organization(self, user):
+        if user.is_superuser:
+            return None
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        return getattr(staff_profile, "organization", None)
+
+    def _dashboard_patient_queryset(self, user):
+        queryset = PatientProfile.objects.select_related("user", "organization")
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(organization=organization)
+        return queryset
+
+    def _dashboard_pharmacy_queryset(self, user):
+        queryset = Pharmacy.objects.select_related("organization")
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(organization=organization)
+        return queryset
+
+    def _dashboard_pharmacist_queryset(self, user):
+        queryset = PharmacistProfile.objects.select_related(
+            "user",
+            "pharmacy",
+            "pharmacy__organization",
+        )
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(pharmacy__organization=organization)
+        return queryset
+
+    def _dashboard_prescription_queryset(self, user):
+        queryset = Prescription.objects.select_related(
+            "patient",
+            "patient__organization",
+        )
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(patient__organization=organization)
+        return queryset
+
+    def _dashboard_sign_quality_queryset(self, user):
+        queryset = SignQualityReport.objects.select_related(
+            "patient",
+            "patient__organization",
+        )
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(patient__organization=organization)
+        return queryset
+
+    def _dashboard_approval_queryset(self, user):
+        roles = self._manageable_dashboard_roles(user)
+        queryset = User.objects.filter(
+            role__in=roles,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        organization = self._admin_staff_organization(user)
+        if organization is not None:
+            queryset = queryset.filter(
+                patient_profile__organization=organization
+            ) | queryset.filter(pharmacist_profile__pharmacy__organization=organization)
+        return queryset.distinct()
+
+    def _distribution(self, queryset, field_name):
+        return [
+            {"value": row[field_name] or "", "count": row["count"]}
+            for row in queryset.values(field_name)
+            .annotate(count=Count("id"))
+            .order_by(field_name)
+        ]
+
+    def _age_group_distribution(self, queryset):
+        today = timezone.localdate()
+        groups = {
+            "unknown": 0,
+            "0-17": 0,
+            "18-35": 0,
+            "36-60": 0,
+            "61+": 0,
+        }
+        for birth_date in queryset.values_list("birth_date", flat=True):
+            if birth_date is None:
+                groups["unknown"] += 1
+                continue
+            age = (
+                today.year
+                - birth_date.year
+                - ((today.month, today.day) < (birth_date.month, birth_date.day))
+            )
+            if age < 18:
+                groups["0-17"] += 1
+            elif age <= 35:
+                groups["18-35"] += 1
+            elif age <= 60:
+                groups["36-60"] += 1
+            else:
+                groups["61+"] += 1
+        return [{"value": label, "count": count} for label, count in groups.items()]
+
+    def _recent_patients_payload(self, queryset):
+        return [
+            {
+                "id": patient.id,
+                "full_name": patient.full_name,
+                "phone_number": patient.phone_number or patient.user.phone_number or "",
+                "gender": patient.gender,
+                "hearing_disability_level": patient.hearing_disability_level,
+                "qr_is_active": patient.qr_is_active,
+                "created_at": patient.created_at,
+            }
+            for patient in queryset.order_by("-created_at")[:5]
+        ]
+
+    def _approval_request_name(self, user):
+        if user.role == RoleChoices.PATIENT and hasattr(user, "patient_profile"):
+            return user.patient_profile.full_name
+        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
+            return user.pharmacist_profile.full_name
+        return ""
+
+    def _recent_approval_requests_payload(self, queryset):
+        users = queryset.select_related(
+            "patient_profile",
+            "pharmacist_profile",
+            "pharmacist_profile__pharmacy",
+        ).order_by("-created_at")[:5]
+        return [
+            {
+                "id": user.id,
+                "name": self._approval_request_name(user),
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "role": user.role,
+                "approval_status": user.approval_status,
+                "created_at": user.created_at,
+            }
+            for user in users
+        ]
+
+    def _dashboard_stats_payload(self, user):
+        patient_queryset = self._dashboard_patient_queryset(user)
+        pharmacist_queryset = self._dashboard_pharmacist_queryset(user)
+        pharmacy_queryset = self._dashboard_pharmacy_queryset(user)
+        prescription_queryset = self._dashboard_prescription_queryset(user)
+        sign_quality_queryset = self._dashboard_sign_quality_queryset(user)
+        approval_queryset = self._dashboard_approval_queryset(user)
+
+        # City/region are not structured backend fields yet; keep this empty
+        # until Phase B introduces an explicit location model/fields.
+        patients_by_city = []
+
+        return {
+            "patients_count": patient_queryset.count(),
+            "pharmacists_count": pharmacist_queryset.count(),
+            "pharmacies_count": pharmacy_queryset.count(),
+            "prescriptions_count": prescription_queryset.count(),
+            "active_qr_count": patient_queryset.filter(qr_is_active=True).count(),
+            "pending_approvals_count": approval_queryset.count(),
+            "sign_quality_follow_up_count": sign_quality_queryset.filter(
+                status__in=[
+                    SignQualityReport.STATUS_OPEN,
+                    SignQualityReport.STATUS_REVIEWED,
+                ]
+            ).count(),
+            "gender_distribution": self._distribution(patient_queryset, "gender"),
+            "hearing_severity_distribution": self._distribution(
+                patient_queryset,
+                "hearing_disability_level",
+            ),
+            "age_groups": self._age_group_distribution(patient_queryset),
+            "patients_by_city": patients_by_city,
+            "recent_patients": self._recent_patients_payload(patient_queryset),
+            "recent_approval_requests": self._recent_approval_requests_payload(
+                approval_queryset
+            ),
+        }
+
     @action(detail=False, methods=["post"], url_path="pharmacist/register")
     def pharmacist_register(self, request):
         serializer = PharmacistRegisterSerializer(data=request.data)
@@ -167,6 +386,26 @@ class AuthViewSet(viewsets.ViewSet):
         if blocked_response:
             return blocked_response
         return self._build_auth_response(user)
+
+    @action(detail=False, methods=["post"], url_path="admin/auth/login")
+    def admin_login(self, request):
+        serializer = LoginSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = serializer.validated_data["user"]
+        blocked_response = self._approval_block_response(user)
+        if blocked_response:
+            return blocked_response
+        admin_response = self._ensure_admin_response(user)
+        if admin_response:
+            return admin_response
+        return self._build_admin_auth_response(user)
 
     @action(detail=False, methods=["post"], url_path="patient/self-register")
     def patient_self_register(self, request):
@@ -357,6 +596,10 @@ class AuthViewSet(viewsets.ViewSet):
             )
         return Response({"detail": "Logged out successfully"})
 
+    @action(detail=False, methods=["post"], url_path="admin/auth/logout")
+    def admin_logout(self, request):
+        return self.logout(request)
+
     @action(detail=False, methods=["post"], url_path="change-password")
     def change_password(self, request):
         serializer = ChangePasswordSerializer(
@@ -374,3 +617,17 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
         return Response(AuthMeSerializer(request.user).data)
+
+    @action(detail=False, methods=["get"], url_path="admin/auth/me")
+    def admin_me(self, request):
+        admin_response = self._ensure_admin_response(request.user)
+        if admin_response:
+            return admin_response
+        return Response(AdminAuthMeSerializer(request.user).data)
+
+    @action(detail=False, methods=["get"], url_path="admin/dashboard/stats")
+    def admin_dashboard_stats(self, request):
+        admin_response = self._ensure_admin_response(request.user)
+        if admin_response:
+            return admin_response
+        return Response(self._dashboard_stats_payload(request.user))

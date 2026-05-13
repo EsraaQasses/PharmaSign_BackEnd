@@ -13,9 +13,10 @@ from common.choices import (
     HearingDisabilityLevelChoices,
     RoleChoices,
 )
-from organizations.models import Organization
+from organizations.models import Organization, OrganizationStaffProfile
 from patients.models import PatientEnrollment, PatientProfile
 from pharmacies.models import PharmacistProfile, Pharmacy
+from prescriptions.models import Prescription, PrescriptionItem, SignQualityReport
 
 from .models import PhoneOTP, User
 
@@ -1397,3 +1398,316 @@ class AuthAndPatientFlowTests(APITestCase):
             change_response.data["detail"], "Password changed successfully"
         )
         self.assertEqual(logout_response.data["detail"], "Logged out successfully")
+
+
+class AdminPhaseAApiTests(APITestCase):
+    def create_user(self, email, role, password="StrongPass123!", **extra_fields):
+        return User.objects.create_user(
+            email=email,
+            password=password,
+            role=role,
+            **extra_fields,
+        )
+
+    def test_admin_user_can_login_through_admin_auth_login(self):
+        organization = Organization.objects.create(name="Admin Login Org")
+        admin_user = self.create_user(
+            "admin.phasea@example.com",
+            RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=organization,
+            job_title="Coordinator",
+            can_manage_patients=True,
+            can_manage_pharmacists=True,
+        )
+
+        response = self.client.post(
+            reverse("accounts:admin_login"),
+            {"email": "admin.phasea@example.com", "password": "StrongPass123!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["role"], RoleChoices.ADMIN)
+        self.assertTrue(response.data["user"]["is_staff"])
+        self.assertFalse(response.data["user"]["is_superuser"])
+        self.assertEqual(response.data["profile"]["organization"]["id"], organization.id)
+        self.assertTrue(response.data["profile"]["can_manage_patients"])
+        self.assertTrue(response.data["profile"]["can_manage_pharmacists"])
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+
+    def test_patient_user_cannot_login_through_admin_auth_login(self):
+        patient_user = self.create_user(
+            "admin.login.patient@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Patient Login")
+
+        response = self.client.post(
+            reverse("accounts:admin_login"),
+            {
+                "email": "admin.login.patient@example.com",
+                "password": "StrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "admin_access_required")
+
+    def test_pharmacist_user_cannot_login_through_admin_auth_login(self):
+        pharmacist_user = self.create_user(
+            "admin.login.pharmacist@example.com",
+            RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(name="Rejected Admin Login", address="City")
+        PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Pharmacist Login",
+            is_approved=True,
+        )
+
+        response = self.client.post(
+            reverse("accounts:admin_login"),
+            {
+                "email": "admin.login.pharmacist@example.com",
+                "password": "StrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "admin_access_required")
+
+    def test_admin_user_can_call_admin_auth_me(self):
+        organization = Organization.objects.create(name="Admin Me Org")
+        admin_user = self.create_user(
+            "admin.me@example.com",
+            RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=organization,
+            job_title="Manager",
+            can_manage_patients=True,
+            can_manage_pharmacists=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get(reverse("accounts:admin_me"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["id"], admin_user.id)
+        self.assertEqual(response.data["profile"]["organization"]["name"], organization.name)
+        self.assertTrue(response.data["profile"]["can_manage_patients"])
+        self.assertFalse(response.data["profile"]["can_manage_pharmacists"])
+
+    def test_non_admin_user_cannot_call_admin_auth_me(self):
+        patient_user = self.create_user(
+            "admin.me.patient@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Me Patient")
+        self.client.force_authenticate(patient_user)
+
+        response = self.client.get(reverse("accounts:admin_me"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "admin_access_required")
+
+    def test_admin_user_can_call_dashboard_stats_with_expected_keys(self):
+        admin_user = self.create_user(
+            "dashboard.admin@example.com",
+            RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get(reverse("accounts:admin_dashboard_stats"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            set(response.data.keys()),
+            {
+                "patients_count",
+                "pharmacists_count",
+                "pharmacies_count",
+                "prescriptions_count",
+                "active_qr_count",
+                "pending_approvals_count",
+                "sign_quality_follow_up_count",
+                "gender_distribution",
+                "hearing_severity_distribution",
+                "age_groups",
+                "patients_by_city",
+                "recent_patients",
+                "recent_approval_requests",
+            },
+        )
+        self.assertEqual(response.data["patients_by_city"], [])
+
+    def test_non_admin_user_cannot_call_dashboard_stats(self):
+        patient_user = self.create_user(
+            "dashboard.patient@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Stats Patient")
+        self.client.force_authenticate(patient_user)
+
+        response = self.client.get(reverse("accounts:admin_dashboard_stats"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "admin_access_required")
+
+    def test_dashboard_stats_are_scoped_to_staff_organization(self):
+        scoped_org = Organization.objects.create(name="Scoped Org")
+        other_org = Organization.objects.create(name="Other Org")
+        admin_user = self.create_user(
+            "dashboard.scoped.admin@example.com",
+            RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=scoped_org,
+            can_manage_patients=True,
+            can_manage_pharmacists=True,
+        )
+
+        scoped_patient_user = self.create_user(
+            "scoped.patient@example.com",
+            RoleChoices.PATIENT,
+            phone_number="900001",
+        )
+        scoped_patient = PatientProfile.objects.create(
+            user=scoped_patient_user,
+            organization=scoped_org,
+            full_name="Scoped Patient",
+            phone_number="900001",
+            birth_date=date(1990, 1, 1),
+            gender=GenderChoices.FEMALE,
+            hearing_disability_level=HearingDisabilityLevelChoices.SEVERE,
+            qr_is_active=True,
+        )
+        other_patient_user = self.create_user(
+            "other.patient@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=other_patient_user,
+            organization=other_org,
+            full_name="Other Patient",
+            gender=GenderChoices.MALE,
+            qr_is_active=True,
+        )
+
+        scoped_pharmacy = Pharmacy.objects.create(
+            name="Scoped Pharmacy",
+            address="Scoped Address",
+            organization=scoped_org,
+        )
+        other_pharmacy = Pharmacy.objects.create(
+            name="Other Pharmacy",
+            address="Other Address",
+            organization=other_org,
+        )
+        scoped_pharmacist_user = self.create_user(
+            "scoped.pharmacist@example.com",
+            RoleChoices.PHARMACIST,
+        )
+        scoped_pharmacist = PharmacistProfile.objects.create(
+            user=scoped_pharmacist_user,
+            pharmacy=scoped_pharmacy,
+            full_name="Scoped Pharmacist",
+            is_approved=True,
+        )
+        other_pharmacist_user = self.create_user(
+            "other.pharmacist@example.com",
+            RoleChoices.PHARMACIST,
+        )
+        PharmacistProfile.objects.create(
+            user=other_pharmacist_user,
+            pharmacy=other_pharmacy,
+            full_name="Other Pharmacist",
+            is_approved=True,
+        )
+
+        prescription = Prescription.objects.create(
+            patient=scoped_patient,
+            pharmacist=scoped_pharmacist,
+            pharmacy=scoped_pharmacy,
+            doctor_name="Scoped Doctor",
+        )
+        item = PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Scoped Medicine",
+        )
+        SignQualityReport.objects.create(
+            patient=scoped_patient,
+            prescription=prescription,
+            prescription_item=item,
+            medicine_name=item.medicine_name,
+            status=SignQualityReport.STATUS_OPEN,
+        )
+
+        other_prescription = Prescription.objects.create(
+            patient=PatientProfile.objects.get(user=other_patient_user),
+            pharmacist=PharmacistProfile.objects.get(user=other_pharmacist_user),
+            pharmacy=other_pharmacy,
+            doctor_name="Other Doctor",
+        )
+        other_item = PrescriptionItem.objects.create(
+            prescription=other_prescription,
+            medicine_name="Other Medicine",
+        )
+        SignQualityReport.objects.create(
+            patient=other_prescription.patient,
+            prescription=other_prescription,
+            prescription_item=other_item,
+            medicine_name=other_item.medicine_name,
+            status=SignQualityReport.STATUS_OPEN,
+        )
+
+        pending_scoped_user = self.create_user(
+            "pending.scoped@example.com",
+            RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        PatientProfile.objects.create(
+            user=pending_scoped_user,
+            organization=scoped_org,
+            full_name="Pending Scoped",
+        )
+        pending_other_user = self.create_user(
+            "pending.other@example.com",
+            RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        PatientProfile.objects.create(
+            user=pending_other_user,
+            organization=other_org,
+            full_name="Pending Other",
+        )
+
+        self.client.force_authenticate(admin_user)
+        response = self.client.get(reverse("accounts:admin_dashboard_stats"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["patients_count"], 2)
+        self.assertEqual(response.data["pharmacies_count"], 1)
+        self.assertEqual(response.data["pharmacists_count"], 1)
+        self.assertEqual(response.data["prescriptions_count"], 1)
+        self.assertEqual(response.data["active_qr_count"], 1)
+        self.assertEqual(response.data["pending_approvals_count"], 1)
+        self.assertEqual(response.data["sign_quality_follow_up_count"], 1)
+        self.assertEqual(len(response.data["recent_approval_requests"]), 1)
+        self.assertEqual(
+            response.data["recent_approval_requests"][0]["id"],
+            pending_scoped_user.id,
+        )

@@ -41,6 +41,47 @@ def build_compat_user_payload(user):
     }
 
 
+def build_admin_user_payload(user):
+    return {
+        "id": user.id,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "role": user.role,
+        "is_staff": user.is_staff,
+        "is_superuser": user.is_superuser,
+        "is_active": user.is_active,
+        "approval_status": user.approval_status,
+    }
+
+
+def build_admin_profile_payload(user):
+    staff_profile = getattr(user, "organization_staff_profile", None)
+    if staff_profile is None:
+        return {}
+
+    organization = staff_profile.organization
+    return {
+        "organization": (
+            {
+                "id": organization.id,
+                "name": organization.name,
+            }
+            if organization
+            else None
+        ),
+        "job_title": staff_profile.job_title,
+        "can_manage_patients": staff_profile.can_manage_patients,
+        "can_manage_pharmacists": staff_profile.can_manage_pharmacists,
+    }
+
+
+def build_admin_auth_payload(user):
+    return {
+        "user": build_admin_user_payload(user),
+        "profile": build_admin_profile_payload(user),
+    }
+
+
 def build_compat_patient_profile_payload(profile):
     medical_info = getattr(profile, "medical_info", None)
     return {
@@ -258,6 +299,11 @@ class AuthMeSerializer(serializers.Serializer):
             "user": build_compat_user_payload(user),
             "profile": profile,
         }
+
+
+class AdminAuthMeSerializer(serializers.Serializer):
+    def to_representation(self, user):
+        return build_admin_auth_payload(user)
 
 
 class PatientQRLoginSerializer(serializers.Serializer):

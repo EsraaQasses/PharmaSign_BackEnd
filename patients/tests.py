@@ -14,6 +14,7 @@ from common.choices import (
 )
 from organizations.models import Organization, OrganizationStaffProfile
 from patients.models import (
+    PatientLoginQR,
     PatientMedicalInfo,
     PatientProfile,
     PatientSession,
@@ -1019,3 +1020,216 @@ class PatientSessionQRFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class AdminPatientPhaseBApiTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="phaseb.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        self.patient_user = User.objects.create_user(
+            email="phaseb.patient@example.com",
+            password="StrongPass123!",
+            phone_number="7001001",
+            role=RoleChoices.PATIENT,
+        )
+        self.patient = PatientProfile.objects.create(
+            user=self.patient_user,
+            full_name="Phase B Patient",
+            phone_number="7001001",
+            birth_date=date(2000, 1, 1),
+            gender=GenderChoices.FEMALE,
+            address="Known Address",
+            hearing_disability_level=HearingDisabilityLevelChoices.MODERATE,
+            qr_code_value="phase-b-qr",
+            qr_is_active=True,
+        )
+        PatientMedicalInfo.objects.create(
+            patient=self.patient,
+            blood_type="A_POS",
+            chronic_conditions="Asthma",
+            allergies="Penicillin",
+            is_pregnant=False,
+            is_breastfeeding=False,
+            notes="Existing notes",
+        )
+        PatientLoginQR.objects.create(
+            patient=self.patient,
+            token_hash="not-exposed-token-hash",
+            is_active=True,
+            created_by=self.admin_user,
+        )
+
+    def test_admin_can_list_patients(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-patient-list"),
+            {"search": "Phase B", "page_size": 5},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        patient = response.data["results"][0]
+        self.assertEqual(patient["id"], self.patient.id)
+        self.assertIsNone(patient["city"])
+        self.assertIsNone(patient["region"])
+        self.assertTrue(patient["qr"]["active_login_qr_exists"])
+        self.assertNotIn("token_hash", str(response.data))
+
+    def test_non_admin_cannot_list_patients(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("admin-patient-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_retrieve_patient_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-patient-detail", kwargs={"pk": self.patient.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["full_name"], "Phase B Patient")
+        self.assertEqual(response.data["medical_info"]["allergies"], "Penicillin")
+        self.assertIsNone(response.data["city"])
+        self.assertIsNone(response.data["region"])
+        self.assertIsNone(response.data["diagnosis"])
+
+    def test_admin_can_patch_safe_patient_fields(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.patch(
+            reverse("admin-patient-detail", kwargs={"pk": self.patient.id}),
+            {
+                "full_name": "Updated Patient",
+                "phone_number": "7001999",
+                "birth_date": "1999-02-03",
+                "gender": GenderChoices.MALE,
+                "address": "Updated Address",
+                "hearing_disability_level": HearingDisabilityLevelChoices.SEVERE,
+                "medical_info": {
+                    "blood_type": "B_POS",
+                    "chronic_conditions": "Diabetes",
+                    "allergies": "None",
+                    "is_pregnant": False,
+                    "is_breastfeeding": False,
+                    "notes": "Updated notes",
+                },
+                "account_status": {
+                    "is_active": True,
+                    "approval_status": "approved",
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient.refresh_from_db()
+        self.patient_user.refresh_from_db()
+        self.assertEqual(self.patient.full_name, "Updated Patient")
+        self.assertEqual(self.patient.phone_number, "7001999")
+        self.assertEqual(self.patient_user.phone_number, "7001999")
+        self.assertEqual(self.patient.medical_info.blood_type, "B_POS")
+        self.assertEqual(response.data["account_status"]["approval_status"], "approved")
+
+    def test_admin_delete_deactivates_user_and_qr_without_hard_delete(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.delete(
+            reverse("admin-patient-detail", kwargs={"pk": self.patient.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.patient.refresh_from_db()
+        self.patient_user.refresh_from_db()
+        self.assertFalse(self.patient_user.is_active)
+        self.assertFalse(self.patient.qr_is_active)
+        self.assertTrue(PatientProfile.objects.filter(pk=self.patient.id).exists())
+        self.assertFalse(
+            PatientLoginQR.objects.filter(patient=self.patient, is_active=True).exists()
+        )
+
+    def test_admin_can_generate_patient_qr(self):
+        self.patient.qr_code_value = ""
+        self.patient.qr_is_active = False
+        self.patient.save(update_fields=["qr_code_value", "qr_is_active", "updated_at"])
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse("admin-patient-generate-qr", kwargs={"pk": self.patient.id}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["patient_id"], self.patient.id)
+        self.assertTrue(response.data["qr_code_value"])
+        self.assertTrue(response.data["qr_is_active"])
+
+    def test_admin_can_list_qr_codes_without_hashes(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(reverse("admin-qr-code-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        qr = response.data["results"][0]
+        self.assertEqual(qr["id"], self.patient.id)
+        self.assertEqual(qr["value"], "phase-b-qr")
+        self.assertEqual(qr["status"], "active")
+        self.assertIsNone(qr["patient"]["city"])
+        self.assertIsNone(qr["patient"]["region"])
+        self.assertNotIn("token_hash", str(response.data))
+        self.assertNotIn("not-exposed-token-hash", str(response.data))
+
+    def test_admin_can_retrieve_qr_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-qr-code-detail", kwargs={"pk": self.patient.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.patient.id)
+        self.assertEqual(response.data["patient"]["full_name"], "Phase B Patient")
+        self.assertEqual(response.data["value"], "phase-b-qr")
+
+    def test_admin_can_regenerate_disable_and_reactivate_qr(self):
+        self.client.force_authenticate(self.admin_user)
+
+        regenerate_response = self.client.post(
+            reverse("admin-qr-code-regenerate", kwargs={"pk": self.patient.id}),
+            {},
+            format="json",
+        )
+        self.patient.refresh_from_db()
+        regenerated_value = self.patient.qr_code_value
+        disable_response = self.client.post(
+            reverse("admin-qr-code-disable", kwargs={"pk": self.patient.id}),
+            {},
+            format="json",
+        )
+        self.patient.refresh_from_db()
+        disabled_state = self.patient.qr_is_active
+        reactivate_response = self.client.post(
+            reverse("admin-qr-code-reactivate", kwargs={"pk": self.patient.id}),
+            {},
+            format="json",
+        )
+        self.patient.refresh_from_db()
+
+        self.assertEqual(regenerate_response.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(regenerated_value, "phase-b-qr")
+        self.assertTrue(regenerate_response.data["value"])
+        self.assertEqual(disable_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(disable_response.data["status"], "disabled")
+        self.assertFalse(disabled_state)
+        self.assertEqual(reactivate_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(reactivate_response.data["status"], "active")
+        self.assertTrue(self.patient.qr_is_active)

@@ -1,8 +1,10 @@
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -19,7 +21,10 @@ from common.choices import PatientSessionAccessTypeChoices
 
 from .models import PatientEnrollment, PatientProfile, PatientSession, PatientSettings
 from .serializers import (
+    AdminPatientQRSerializer,
     AdminPatientCreateAccountSerializer,
+    AdminPatientSerializer,
+    AdminPatientUpdateSerializer,
     CreatePatientAccountSerializer,
     GeneratePatientLoginQRSerializer,
     GeneratePatientQRSerializer,
@@ -34,7 +39,12 @@ from .serializers import (
     StartPatientSessionSerializer,
     build_session_response_payload,
 )
-from .services import build_patient_summary
+from .services import assign_patient_qr_code, build_patient_summary, revoke_patient_login_qr
+
+
+class AdminPageNumberPagination(PageNumberPagination):
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class PatientEnrollmentViewSet(viewsets.ModelViewSet):
@@ -96,6 +106,148 @@ class PatientManagementViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if self.request.user.is_superuser or staff_profile is None:
             return queryset
         return queryset.filter(organization=staff_profile.organization)
+
+
+class AdminPatientViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [IsAuthenticated, CanManagePatients]
+    pagination_class = AdminPageNumberPagination
+    http_method_names = ["get", "patch", "delete", "post", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action == "partial_update":
+            return AdminPatientUpdateSerializer
+        return AdminPatientSerializer
+
+    def get_queryset(self):
+        queryset = PatientProfile.objects.select_related(
+            "user",
+            "organization",
+            "medical_info",
+        ).order_by("-created_at", "-id")
+        staff_profile = getattr(self.request.user, "organization_staff_profile", None)
+        if not self.request.user.is_superuser and staff_profile is not None:
+            queryset = queryset.filter(organization=staff_profile.organization)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(phone_number__icontains=search)
+                | Q(user__phone_number__icontains=search)
+                | Q(user__email__icontains=search)
+            )
+
+        gender = self.request.query_params.get("gender")
+        if gender:
+            queryset = queryset.filter(gender=gender)
+
+        hearing_level = self.request.query_params.get("hearing_disability_level")
+        if hearing_level:
+            queryset = queryset.filter(hearing_disability_level=hearing_level)
+
+        approval_status = self.request.query_params.get("approval_status")
+        if approval_status:
+            queryset = queryset.filter(user__approval_status=approval_status)
+
+        qr_is_active = self.request.query_params.get("qr_is_active")
+        if qr_is_active is not None:
+            normalized = str(qr_is_active).strip().lower()
+            if normalized in {"1", "true", "yes"}:
+                queryset = queryset.filter(qr_is_active=True)
+            elif normalized in {"0", "false", "no"}:
+                queryset = queryset.filter(qr_is_active=False)
+
+        return queryset
+
+    def partial_update(self, request, *args, **kwargs):
+        patient = self.get_object()
+        serializer = self.get_serializer(
+            patient,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        patient = serializer.save()
+        return Response(AdminPatientSerializer(patient).data)
+
+    def destroy(self, request, *args, **kwargs):
+        patient = self.get_object()
+        user = patient.user
+        user.is_active = False
+        user.save(update_fields=["is_active", "updated_at"])
+        patient.qr_is_active = False
+        patient.save(update_fields=["qr_is_active", "updated_at"])
+        revoke_patient_login_qr(patient)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="generate-qr")
+    def generate_qr(self, request, pk=None):
+        patient = self.get_object()
+        serializer = GeneratePatientQRSerializer(
+            data=request.data or {},
+            context={"patient": patient},
+        )
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.save()
+        return Response(
+            {
+                "patient_id": patient.id,
+                "qr_code_value": payload["qr_code_value"],
+                "qr_is_active": payload["qr_is_active"],
+            }
+        )
+
+
+class AdminQRCodeViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = AdminPatientQRSerializer
+    permission_classes = [IsAuthenticated, CanManagePatients]
+    pagination_class = AdminPageNumberPagination
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        queryset = PatientProfile.objects.select_related("user", "organization").filter(
+            qr_code_value__isnull=False
+        ).order_by("-updated_at", "-id")
+        staff_profile = getattr(self.request.user, "organization_staff_profile", None)
+        if not self.request.user.is_superuser and staff_profile is not None:
+            queryset = queryset.filter(organization=staff_profile.organization)
+        return queryset
+
+    @action(detail=True, methods=["post"], url_path="regenerate")
+    def regenerate(self, request, pk=None):
+        patient = self.get_object()
+        assign_patient_qr_code(patient, regenerate=True)
+        patient.refresh_from_db()
+        return Response(self.get_serializer(patient).data)
+
+    @action(detail=True, methods=["post"], url_path="disable")
+    def disable(self, request, pk=None):
+        patient = self.get_object()
+        patient.qr_is_active = False
+        patient.save(update_fields=["qr_is_active", "updated_at"])
+        return Response(self.get_serializer(patient).data)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request, pk=None):
+        patient = self.get_object()
+        if patient.qr_code_value:
+            patient.qr_is_active = True
+            patient.save(update_fields=["qr_is_active", "updated_at"])
+        else:
+            assign_patient_qr_code(patient)
+            patient.refresh_from_db()
+        return Response(self.get_serializer(patient).data)
 
 
 class PatientSelfProfileViewSet(viewsets.ViewSet):

@@ -25,6 +25,26 @@ urlpatterns = [
     ),
     path("auth/login/", auth_viewset({"post": "login"}), name="login"),
     path(
+        "admin/auth/login/",
+        auth_viewset({"post": "admin_login"}),
+        name="admin_login",
+    ),
+    path(
+        "admin/auth/me/",
+        auth_viewset({"get": "admin_me"}),
+        name="admin_me",
+    ),
+    path(
+        "admin/auth/logout/",
+        auth_viewset({"post": "admin_logout"}),
+        name="admin_logout",
+    ),
+    path(
+        "admin/dashboard/stats/",
+        auth_viewset({"get": "admin_dashboard_stats"}),
+        name="admin_dashboard_stats",
+    ),
+    path(
         "auth/patient/self-register/",
         auth_viewset({"post": "patient_self_register"}),
         name="patient_self_register",

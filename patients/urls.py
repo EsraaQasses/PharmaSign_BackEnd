@@ -3,7 +3,9 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AdminPatientAccountViewSet,
+    AdminPatientViewSet,
     AdminPatientLoginQRViewSet,
+    AdminQRCodeViewSet,
     PharmacistPatientSessionViewSet,
     PatientEnrollmentViewSet,
     PatientManagementViewSet,
@@ -35,11 +37,52 @@ pharmacist_session_end = PharmacistPatientSessionViewSet.as_view({"post": "end"}
 admin_patient_create_account = AdminPatientAccountViewSet.as_view(
     {"post": "create_account"}
 )
+admin_patients = AdminPatientViewSet.as_view({"get": "list"})
+admin_patient_detail = AdminPatientViewSet.as_view(
+    {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
+)
+admin_patient_generate_qr = AdminPatientViewSet.as_view({"post": "generate_qr"})
+admin_qr_codes = AdminQRCodeViewSet.as_view({"get": "list"})
+admin_qr_code_detail = AdminQRCodeViewSet.as_view({"get": "retrieve"})
+admin_qr_code_regenerate = AdminQRCodeViewSet.as_view({"post": "regenerate"})
+admin_qr_code_disable = AdminQRCodeViewSet.as_view({"post": "disable"})
+admin_qr_code_reactivate = AdminQRCodeViewSet.as_view({"post": "reactivate"})
 admin_patient_login_qr = AdminPatientLoginQRViewSet.as_view({"post": "generate"})
 admin_patient_login_qr_revoke = AdminPatientLoginQRViewSet.as_view({"post": "revoke"})
 
 urlpatterns = [
-    path("", include(router.urls)),
+    path("admin/patients/", admin_patients, name="admin-patient-list"),
+    path(
+        "admin/patients/<int:pk>/",
+        admin_patient_detail,
+        name="admin-patient-detail",
+    ),
+    path(
+        "admin/patients/<int:pk>/generate-qr/",
+        admin_patient_generate_qr,
+        name="admin-patient-generate-qr",
+    ),
+    path("admin/qr-codes/", admin_qr_codes, name="admin-qr-code-list"),
+    path(
+        "admin/qr-codes/<int:pk>/",
+        admin_qr_code_detail,
+        name="admin-qr-code-detail",
+    ),
+    path(
+        "admin/qr-codes/<int:pk>/regenerate/",
+        admin_qr_code_regenerate,
+        name="admin-qr-code-regenerate",
+    ),
+    path(
+        "admin/qr-codes/<int:pk>/disable/",
+        admin_qr_code_disable,
+        name="admin-qr-code-disable",
+    ),
+    path(
+        "admin/qr-codes/<int:pk>/reactivate/",
+        admin_qr_code_reactivate,
+        name="admin-qr-code-reactivate",
+    ),
     path(
         "admin/patients/create-account/",
         admin_patient_create_account,
@@ -55,6 +98,7 @@ urlpatterns = [
         admin_patient_login_qr_revoke,
         name="admin-patient-login-qr-revoke",
     ),
+    path("", include(router.urls)),
     path("patients/me/", patient_me, name="patient-me"),
     path("patients/me/settings/", patient_settings, name="patient-settings"),
     path("patients/me/session-qr/", patient_session_qr, name="patient-session-qr"),
