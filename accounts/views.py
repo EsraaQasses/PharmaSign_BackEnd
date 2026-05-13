@@ -1,10 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
@@ -23,6 +24,7 @@ from pharmacies.models import PharmacistProfile, Pharmacy
 from prescriptions.models import Prescription, SignQualityReport
 
 from .serializers import (
+    AdminApprovalRequestSerializer,
     AdminAuthMeSerializer,
     AuthMeSerializer,
     ChangePasswordSerializer,
@@ -37,6 +39,11 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+class AdminPageNumberPagination(PageNumberPagination):
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class AuthViewSet(viewsets.ViewSet):
@@ -136,6 +143,47 @@ class AuthViewSet(viewsets.ViewSet):
     def _blacklist_user_tokens(self, user):
         for outstanding_token in OutstandingToken.objects.filter(user=user):
             BlacklistedToken.objects.get_or_create(token=outstanding_token)
+
+    def _approve_user_object(self, user, approved_by):
+        user.approval_status = ApprovalStatusChoices.APPROVED
+        user.approved_at = timezone.now()
+        user.approved_by = approved_by
+        user.rejection_reason = ""
+        user.is_verified = True
+        user.save(
+            update_fields=[
+                "approval_status",
+                "approved_at",
+                "approved_by",
+                "rejection_reason",
+                "is_verified",
+                "updated_at",
+            ]
+        )
+        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
+            profile = user.pharmacist_profile
+            profile.is_approved = True
+            profile.save(update_fields=["is_approved", "updated_at"])
+        return user
+
+    def _reject_user_object(self, user, reason):
+        user.approval_status = ApprovalStatusChoices.REJECTED
+        user.rejection_reason = reason
+        user.is_verified = False
+        user.save(
+            update_fields=[
+                "approval_status",
+                "rejection_reason",
+                "is_verified",
+                "updated_at",
+            ]
+        )
+        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
+            profile = user.pharmacist_profile
+            profile.is_approved = False
+            profile.save(update_fields=["is_approved", "updated_at"])
+        self._blacklist_user_tokens(user)
+        return user
 
     def _build_auth_response(self, user, status_code=status.HTTP_200_OK):
         refresh = RefreshToken.for_user(user)
@@ -301,6 +349,51 @@ class AuthViewSet(viewsets.ViewSet):
         if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
             return user.pharmacist_profile.full_name
         return ""
+
+    def _approval_request_queryset(self, request):
+        queryset = User.objects.select_related(
+            "patient_profile",
+            "pharmacist_profile",
+            "pharmacist_profile__pharmacy",
+        ).filter(role__in=self._manageable_registration_roles(request.user))
+
+        request_type = request.query_params.get("type")
+        if request_type:
+            queryset = queryset.filter(role=request_type)
+
+        request_status = request.query_params.get("status")
+        if request_status:
+            queryset = queryset.filter(approval_status=request_status)
+
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(email__icontains=search)
+                | Q(phone_number__icontains=search)
+                | Q(patient_profile__full_name__icontains=search)
+                | Q(pharmacist_profile__full_name__icontains=search)
+                | Q(pharmacist_profile__license_number__icontains=search)
+            )
+        return queryset.order_by("-created_at", "-id").distinct()
+
+    def _serialize_approval_request(self, user, *, include_detail=True):
+        return AdminApprovalRequestSerializer(
+            user,
+            context={"include_detail": include_detail},
+        ).data
+
+    def _get_manageable_approval_user_or_404(self, request, pk):
+        user = get_object_or_404(
+            User.objects.select_related(
+                "patient_profile",
+                "pharmacist_profile",
+                "pharmacist_profile__pharmacy",
+            ),
+            pk=pk,
+        )
+        if not self._can_manage_user_role(request.user, user):
+            return None, self._role_approval_denied()
+        return user, None
 
     def _recent_approval_requests_payload(self, queryset):
         users = queryset.select_related(
@@ -504,6 +597,67 @@ class AuthViewSet(viewsets.ViewSet):
             ]
         )
 
+    @action(detail=False, methods=["get"], url_path="admin/approval-requests")
+    def approval_requests(self, request):
+        if not self._can_manage_registration_requests(request.user):
+            return self._registration_management_denied()
+        queryset = self._approval_request_queryset(request)
+        paginator = AdminPageNumberPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = AdminApprovalRequestSerializer(
+            page,
+            many=True,
+            context={"include_detail": False},
+        )
+        return paginator.get_paginated_response(serializer.data)
+
+    @action(detail=True, methods=["get"], url_path="admin/approval-requests")
+    def approval_request_detail(self, request, pk=None):
+        if not self._can_manage_registration_requests(request.user):
+            return self._registration_management_denied()
+        user, denied_response = self._get_manageable_approval_user_or_404(request, pk)
+        if denied_response:
+            return denied_response
+        return Response(self._serialize_approval_request(user, include_detail=True))
+
+    @action(detail=True, methods=["post"], url_path="admin/approval-requests/approve")
+    def approve_approval_request(self, request, pk=None):
+        if not self._can_manage_registration_requests(request.user):
+            return self._registration_management_denied()
+        user, denied_response = self._get_manageable_approval_user_or_404(request, pk)
+        if denied_response:
+            return denied_response
+        user = self._approve_user_object(user, request.user)
+        user.refresh_from_db()
+        return Response(
+            {
+                "detail": "User approved successfully.",
+                "request": self._serialize_approval_request(
+                    user,
+                    include_detail=True,
+                ),
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="admin/approval-requests/reject")
+    def reject_approval_request(self, request, pk=None):
+        if not self._can_manage_registration_requests(request.user):
+            return self._registration_management_denied()
+        user, denied_response = self._get_manageable_approval_user_or_404(request, pk)
+        if denied_response:
+            return denied_response
+        user = self._reject_user_object(user, request.data.get("reason", ""))
+        user.refresh_from_db()
+        return Response(
+            {
+                "detail": "User rejected successfully.",
+                "request": self._serialize_approval_request(
+                    user,
+                    include_detail=True,
+                ),
+            }
+        )
+
     @action(detail=True, methods=["post"], url_path="admin/users/approve")
     def approve_user(self, request, pk=None):
         if not self._can_manage_registration_requests(request.user):
@@ -511,25 +665,7 @@ class AuthViewSet(viewsets.ViewSet):
         user = get_object_or_404(User, pk=pk)
         if not self._can_manage_user_role(request.user, user):
             return self._role_approval_denied()
-        user.approval_status = ApprovalStatusChoices.APPROVED
-        user.approved_at = timezone.now()
-        user.approved_by = request.user
-        user.rejection_reason = ""
-        user.is_verified = True
-        user.save(
-            update_fields=[
-                "approval_status",
-                "approved_at",
-                "approved_by",
-                "rejection_reason",
-                "is_verified",
-                "updated_at",
-            ]
-        )
-        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
-            profile = user.pharmacist_profile
-            profile.is_approved = True
-            profile.save(update_fields=["is_approved", "updated_at"])
+        self._approve_user_object(user, request.user)
         return Response(
             {
                 "detail": "User approved successfully.",
@@ -549,22 +685,7 @@ class AuthViewSet(viewsets.ViewSet):
         user = get_object_or_404(User, pk=pk)
         if not self._can_manage_user_role(request.user, user):
             return self._role_approval_denied()
-        user.approval_status = ApprovalStatusChoices.REJECTED
-        user.rejection_reason = request.data.get("reason", "")
-        user.is_verified = False
-        user.save(
-            update_fields=[
-                "approval_status",
-                "rejection_reason",
-                "is_verified",
-                "updated_at",
-            ]
-        )
-        if user.role == RoleChoices.PHARMACIST and hasattr(user, "pharmacist_profile"):
-            profile = user.pharmacist_profile
-            profile.is_approved = False
-            profile.save(update_fields=["is_approved", "updated_at"])
-        self._blacklist_user_tokens(user)
+        self._reject_user_object(user, request.data.get("reason", ""))
         return Response(
             {
                 "detail": "User rejected successfully.",

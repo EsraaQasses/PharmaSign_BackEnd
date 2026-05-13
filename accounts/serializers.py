@@ -306,6 +306,100 @@ class AdminAuthMeSerializer(serializers.Serializer):
         return build_admin_auth_payload(user)
 
 
+class AdminApprovalRequestSerializer(serializers.Serializer):
+    def to_representation(self, user):
+        include_detail = self.context.get("include_detail", False)
+        details = self._build_detail(user) if include_detail else self._build_summary(user)
+        payload = {
+            "id": user.id,
+            "user_id": user.id,
+            "type": user.role,
+            "name": self._get_name(user),
+            "phone_number": user.phone_number,
+            "email": user.email,
+            "city": None,
+            "region": None,
+            "request_date": user.created_at,
+            "status": user.approval_status,
+            "details": details,
+            "rejection_reason": user.rejection_reason or None,
+            "selected_pharmacy_id": None,
+            "pharmacist_license_number": None,
+        }
+        pharmacist_profile = getattr(user, "pharmacist_profile", None)
+        if pharmacist_profile is not None:
+            payload["selected_pharmacy_id"] = pharmacist_profile.pharmacy_id
+            payload["pharmacist_license_number"] = (
+                pharmacist_profile.license_number or None
+            )
+        return payload
+
+    def _get_name(self, user):
+        patient_profile = getattr(user, "patient_profile", None)
+        if patient_profile is not None:
+            return patient_profile.full_name
+        pharmacist_profile = getattr(user, "pharmacist_profile", None)
+        if pharmacist_profile is not None:
+            return pharmacist_profile.full_name
+        return ""
+
+    def _build_summary(self, user):
+        if user.role == RoleChoices.PATIENT:
+            patient_profile = getattr(user, "patient_profile", None)
+            if patient_profile is None:
+                return ""
+            return patient_profile.full_name
+        if user.role == RoleChoices.PHARMACIST:
+            pharmacist_profile = getattr(user, "pharmacist_profile", None)
+            if pharmacist_profile is None:
+                return ""
+            return " - ".join(
+                part
+                for part in [
+                    pharmacist_profile.full_name,
+                    pharmacist_profile.license_number,
+                    getattr(pharmacist_profile.pharmacy, "name", ""),
+                ]
+                if part
+            )
+        return ""
+
+    def _build_detail(self, user):
+        if user.role == RoleChoices.PATIENT:
+            patient_profile = getattr(user, "patient_profile", None)
+            if patient_profile is None:
+                return None
+            return {
+                "patient_profile_id": patient_profile.id,
+                "full_name": patient_profile.full_name,
+                "birth_date": patient_profile.birth_date,
+                "gender": patient_profile.gender,
+                "address": patient_profile.address,
+                "hearing_disability_level": (
+                    patient_profile.hearing_disability_level
+                ),
+            }
+        if user.role == RoleChoices.PHARMACIST:
+            pharmacist_profile = getattr(user, "pharmacist_profile", None)
+            if pharmacist_profile is None:
+                return None
+            pharmacy = pharmacist_profile.pharmacy
+            return {
+                "pharmacist_profile_id": pharmacist_profile.id,
+                "full_name": pharmacist_profile.full_name,
+                "license_number": pharmacist_profile.license_number,
+                "is_approved": pharmacist_profile.is_approved,
+                "pharmacy": {
+                    "id": pharmacy.id,
+                    "name": pharmacy.name,
+                    "address": pharmacy.address,
+                    "city": None,
+                    "region": None,
+                },
+            }
+        return None
+
+
 class PatientQRLoginSerializer(serializers.Serializer):
     qr_token = serializers.CharField(required=False)
     qr_code_value = serializers.CharField(required=False, write_only=True)

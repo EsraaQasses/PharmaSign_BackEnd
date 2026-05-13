@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from common.choices import RoleChoices
+from common.choices import ApprovalStatusChoices, RoleChoices
 from organizations.models import Organization, OrganizationStaffProfile
 
 from .models import PharmacistProfile, Pharmacy
@@ -173,3 +173,279 @@ class PharmacyPermissionTests(APITestCase):
         self.assertEqual(response.data[0]["id"], contracted.id)
         self.assertEqual(response.data[0]["latitude"], 33.5152)
         self.assertEqual(response.data[0]["longitude"], 36.2912)
+
+
+class AdminPharmacyPhaseCApiTests(APITestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Phase C Org")
+        self.admin_user = User.objects.create_user(
+            email="phasec.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        self.patient_user = User.objects.create_user(
+            email="phasec.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        self.pharmacy = Pharmacy.objects.create(
+            name="Phase C Pharmacy",
+            address="Phase C Address",
+            phone_number="0111000",
+            latitude="33.513800",
+            longitude="36.276500",
+            organization=self.organization,
+            is_contracted_with_organization=True,
+        )
+        self.pharmacist_user = User.objects.create_user(
+            email="phasec.pharmacist@example.com",
+            password="StrongPass123!",
+            phone_number="0999000",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        self.pharmacist = PharmacistProfile.objects.create(
+            user=self.pharmacist_user,
+            pharmacy=self.pharmacy,
+            full_name="Phase C Pharmacist",
+            license_number="LIC-001",
+            is_approved=True,
+        )
+
+    def test_admin_can_list_pharmacies(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-pharmacy-list"),
+            {"search": "Phase C", "page_size": 5},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        pharmacy = response.data["results"][0]
+        self.assertEqual(pharmacy["id"], self.pharmacy.id)
+        self.assertEqual(pharmacy["pharmacists_count"], 1)
+        self.assertIsNone(pharmacy["city"])
+        self.assertIsNone(pharmacy["region"])
+        self.assertIsNone(pharmacy["license_number"])
+        self.assertIsNone(pharmacy["status"])
+        self.assertIsNone(pharmacy["notes"])
+
+    def test_non_admin_cannot_list_pharmacies(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("admin-pharmacy-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_create_pharmacy_with_existing_fields(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse("admin-pharmacy-list"),
+            {
+                "name": "Created Pharmacy",
+                "phone_number": "0112222",
+                "address": "Created Address",
+                "latitude": "33.500000",
+                "longitude": "36.200000",
+                "is_contracted_with_organization": True,
+                "organization": self.organization.id,
+                "city": "Unsupported City",
+                "license_number": "UNSUPPORTED",
+                "notes": "Unsupported notes",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Pharmacy.objects.get(name="Created Pharmacy")
+        self.assertEqual(created.phone_number, "0112222")
+        self.assertFalse(hasattr(created, "city"))
+        self.assertFalse(hasattr(created, "license_number"))
+        self.assertIsNone(response.data["city"])
+        self.assertIsNone(response.data["license_number"])
+        self.assertIsNone(response.data["notes"])
+
+    def test_admin_can_patch_pharmacy_existing_fields(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.patch(
+            reverse("admin-pharmacy-detail", kwargs={"pk": self.pharmacy.id}),
+            {
+                "name": "Updated Pharmacy",
+                "phone_number": "0113333",
+                "address": "Updated Address",
+                "latitude": "34.000000",
+                "longitude": "37.000000",
+                "is_contracted_with_organization": False,
+                "city": "Unsupported City",
+                "status": "active",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.pharmacy.refresh_from_db()
+        self.assertEqual(self.pharmacy.name, "Updated Pharmacy")
+        self.assertEqual(self.pharmacy.phone_number, "0113333")
+        self.assertFalse(self.pharmacy.is_contracted_with_organization)
+        self.assertFalse(hasattr(self.pharmacy, "status"))
+        self.assertIsNone(response.data["city"])
+        self.assertIsNone(response.data["status"])
+
+    def test_admin_can_retrieve_pharmacy_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-pharmacy-detail", kwargs={"pk": self.pharmacy.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.pharmacy.id)
+        self.assertEqual(response.data["organization"]["id"], self.organization.id)
+        self.assertEqual(response.data["pharmacists_count"], 1)
+
+    def test_admin_can_delete_unlinked_pharmacy_and_blocks_linked_pharmacy(self):
+        unlinked = Pharmacy.objects.create(
+            name="Unlinked Pharmacy",
+            address="Unlinked Address",
+        )
+        self.client.force_authenticate(self.admin_user)
+
+        blocked_response = self.client.delete(
+            reverse("admin-pharmacy-detail", kwargs={"pk": self.pharmacy.id})
+        )
+        deleted_response = self.client.delete(
+            reverse("admin-pharmacy-detail", kwargs={"pk": unlinked.id})
+        )
+
+        self.assertEqual(blocked_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(blocked_response.data["code"], "pharmacy_delete_blocked")
+        self.assertEqual(deleted_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Pharmacy.objects.filter(pk=unlinked.id).exists())
+
+    def test_admin_can_list_pharmacists(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-pharmacist-list"),
+            {"search": "Phase C", "page_size": 5},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        pharmacist = response.data["results"][0]
+        self.assertEqual(pharmacist["id"], self.pharmacist.id)
+        self.assertEqual(pharmacist["pharmacy"]["id"], self.pharmacy.id)
+        self.assertIsNone(pharmacist["pharmacy"]["city"])
+        self.assertIsNone(pharmacist["notes"])
+
+    def test_non_admin_cannot_list_pharmacists(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("admin-pharmacist-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_create_pharmacist(self):
+        other_pharmacy = Pharmacy.objects.create(
+            name="Create Pharmacist Pharmacy",
+            address="Create Pharmacist Address",
+            organization=self.organization,
+        )
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse("admin-pharmacist-list"),
+            {
+                "full_name": "Created Pharmacist",
+                "phone_number": "0999111",
+                "email": "created.pharmacist@example.com",
+                "license_number": "LIC-NEW",
+                "pharmacy_id": other_pharmacy.id,
+                "account_status": {"approval_status": "approved"},
+                "notes": "Unsupported notes",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = PharmacistProfile.objects.get(license_number="LIC-NEW")
+        self.assertEqual(created.user.role, RoleChoices.PHARMACIST)
+        self.assertEqual(created.pharmacy, other_pharmacy)
+        self.assertTrue(created.is_approved)
+        self.assertTrue(response.data["temporary_password_generated"])
+        self.assertIn("temporary_password", response.data)
+        self.assertFalse(hasattr(created, "notes"))
+        self.assertIsNone(response.data["notes"])
+
+    def test_admin_can_retrieve_pharmacist_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-pharmacist-detail", kwargs={"pk": self.pharmacist.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.pharmacist.id)
+        self.assertEqual(response.data["pharmacy"]["name"], self.pharmacy.name)
+        self.assertEqual(response.data["account_status"]["approval_status"], "approved")
+
+    def test_admin_can_patch_pharmacist_safe_fields(self):
+        other_pharmacy = Pharmacy.objects.create(
+            name="Patch Pharmacist Pharmacy",
+            address="Patch Pharmacist Address",
+            organization=self.organization,
+        )
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.patch(
+            reverse("admin-pharmacist-detail", kwargs={"pk": self.pharmacist.id}),
+            {
+                "full_name": "Updated Pharmacist",
+                "phone_number": "0999222",
+                "email": "updated.pharmacist@example.com",
+                "license_number": "LIC-UPDATED",
+                "pharmacy_id": other_pharmacy.id,
+                "account_status": {
+                    "is_active": True,
+                    "approval_status": "approved",
+                },
+                "is_approved": True,
+                "notes": "Unsupported notes",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.pharmacist.refresh_from_db()
+        self.pharmacist_user.refresh_from_db()
+        self.assertEqual(self.pharmacist.full_name, "Updated Pharmacist")
+        self.assertEqual(self.pharmacist.license_number, "LIC-UPDATED")
+        self.assertEqual(self.pharmacist.pharmacy, other_pharmacy)
+        self.assertEqual(self.pharmacist_user.phone_number, "0999222")
+        self.assertEqual(self.pharmacist_user.email, "updated.pharmacist@example.com")
+        self.assertTrue(self.pharmacist.is_approved)
+        self.assertEqual(
+            self.pharmacist_user.approval_status,
+            ApprovalStatusChoices.APPROVED,
+        )
+        self.assertFalse(hasattr(self.pharmacist, "notes"))
+        self.assertIsNone(response.data["notes"])
+
+    def test_admin_delete_pharmacist_deactivates_user_without_hard_delete(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.delete(
+            reverse("admin-pharmacist-detail", kwargs={"pk": self.pharmacist.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.pharmacist.refresh_from_db()
+        self.pharmacist_user.refresh_from_db()
+        self.assertFalse(self.pharmacist_user.is_active)
+        self.assertFalse(self.pharmacist.is_approved)
+        self.assertTrue(PharmacistProfile.objects.filter(pk=self.pharmacist.id).exists())

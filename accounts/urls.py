@@ -70,6 +70,26 @@ urlpatterns = [
         name="registration_requests",
     ),
     path(
+        "admin/approval-requests/",
+        auth_viewset({"get": "approval_requests"}),
+        name="admin_approval_request_list",
+    ),
+    path(
+        "admin/approval-requests/<int:pk>/",
+        auth_viewset({"get": "approval_request_detail"}),
+        name="admin_approval_request_detail",
+    ),
+    path(
+        "admin/approval-requests/<int:pk>/approve/",
+        auth_viewset({"post": "approve_approval_request"}),
+        name="admin_approval_request_approve",
+    ),
+    path(
+        "admin/approval-requests/<int:pk>/reject/",
+        auth_viewset({"post": "reject_approval_request"}),
+        name="admin_approval_request_reject",
+    ),
+    path(
         "admin/users/<int:pk>/approve/",
         AuthViewSet.as_view({"post": "approve_user"}),
         name="approve_user",

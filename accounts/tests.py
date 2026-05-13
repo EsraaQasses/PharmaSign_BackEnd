@@ -1711,3 +1711,269 @@ class AdminPhaseAApiTests(APITestCase):
             response.data["recent_approval_requests"][0]["id"],
             pending_scoped_user.id,
         )
+
+
+class AdminApprovalPhaseDApiTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="phase.d.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        self.patient_user = User.objects.create_user(
+            email="phase.d.patient@example.com",
+            password="StrongPass123!",
+            phone_number="9100001",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        self.patient_profile = PatientProfile.objects.create(
+            user=self.patient_user,
+            full_name="Phase D Patient",
+            phone_number="9100001",
+            birth_date=date(2001, 1, 2),
+            gender=GenderChoices.FEMALE,
+            address="Patient Address",
+            hearing_disability_level=HearingDisabilityLevelChoices.MODERATE,
+        )
+        self.rejected_patient_user = User.objects.create_user(
+            email="phase.d.rejected@example.com",
+            password="StrongPass123!",
+            phone_number="9100002",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.REJECTED,
+            rejection_reason="Old reason",
+        )
+        PatientProfile.objects.create(
+            user=self.rejected_patient_user,
+            full_name="Rejected Phase D Patient",
+            phone_number="9100002",
+        )
+        self.pharmacy = Pharmacy.objects.create(
+            name="Phase D Pharmacy",
+            address="Pharmacy Address",
+        )
+        self.pharmacist_user = User.objects.create_user(
+            email="phase.d.pharmacist@example.com",
+            password="StrongPass123!",
+            phone_number="9100003",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.PENDING,
+        )
+        self.pharmacist_profile = PharmacistProfile.objects.create(
+            user=self.pharmacist_user,
+            pharmacy=self.pharmacy,
+            full_name="Phase D Pharmacist",
+            license_number="PHASE-D-LIC",
+            is_approved=False,
+        )
+
+    def test_admin_can_list_approval_requests(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(reverse("accounts:admin_approval_request_list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data["count"], 3)
+        row = response.data["results"][0]
+        self.assertIn("user_id", row)
+        self.assertIn(row["type"], [RoleChoices.PATIENT, RoleChoices.PHARMACIST])
+        self.assertIsNone(row["city"])
+        self.assertIsNone(row["region"])
+
+    def test_non_admin_cannot_list_approval_requests(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("accounts:admin_approval_request_list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_supports_type_filter(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("accounts:admin_approval_request_list"),
+            {"type": RoleChoices.PHARMACIST},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["results"])
+        self.assertTrue(
+            all(row["type"] == RoleChoices.PHARMACIST for row in response.data["results"])
+        )
+
+    def test_list_supports_status_filter(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("accounts:admin_approval_request_list"),
+            {"status": ApprovalStatusChoices.REJECTED},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["results"])
+        self.assertTrue(
+            all(
+                row["status"] == ApprovalStatusChoices.REJECTED
+                for row in response.data["results"]
+            )
+        )
+
+    def test_list_supports_search(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("accounts:admin_approval_request_list"),
+            {"search": "PHASE-D-LIC"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["id"], self.pharmacist_user.id)
+        self.assertEqual(
+            response.data["results"][0]["pharmacist_license_number"],
+            "PHASE-D-LIC",
+        )
+
+    def test_admin_can_retrieve_patient_approval_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse(
+                "accounts:admin_approval_request_detail",
+                kwargs={"pk": self.patient_user.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.patient_user.id)
+        self.assertEqual(response.data["type"], RoleChoices.PATIENT)
+        self.assertEqual(
+            response.data["details"]["patient_profile_id"],
+            self.patient_profile.id,
+        )
+        self.assertIsNone(response.data["city"])
+        self.assertIsNone(response.data["region"])
+
+    def test_admin_can_retrieve_pharmacist_approval_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse(
+                "accounts:admin_approval_request_detail",
+                kwargs={"pk": self.pharmacist_user.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["type"], RoleChoices.PHARMACIST)
+        self.assertEqual(response.data["selected_pharmacy_id"], self.pharmacy.id)
+        self.assertEqual(response.data["pharmacist_license_number"], "PHASE-D-LIC")
+        self.assertEqual(response.data["details"]["pharmacy"]["name"], self.pharmacy.name)
+        self.assertIsNone(response.data["details"]["pharmacy"]["city"])
+        self.assertIsNone(response.data["details"]["pharmacy"]["region"])
+
+    def test_admin_can_approve_patient_request(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse(
+                "accounts:admin_approval_request_approve",
+                kwargs={"pk": self.patient_user.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient_user.refresh_from_db()
+        self.assertEqual(
+            self.patient_user.approval_status,
+            ApprovalStatusChoices.APPROVED,
+        )
+        self.assertTrue(self.patient_user.is_verified)
+        self.assertEqual(response.data["request"]["status"], ApprovalStatusChoices.APPROVED)
+
+    def test_admin_can_reject_patient_request_with_reason(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse(
+                "accounts:admin_approval_request_reject",
+                kwargs={"pk": self.patient_user.id},
+            ),
+            {"reason": "Missing documents"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient_user.refresh_from_db()
+        self.assertEqual(
+            self.patient_user.approval_status,
+            ApprovalStatusChoices.REJECTED,
+        )
+        self.assertEqual(self.patient_user.rejection_reason, "Missing documents")
+        self.assertEqual(response.data["request"]["rejection_reason"], "Missing documents")
+
+    def test_admin_can_approve_pharmacist_request_and_profile(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse(
+                "accounts:admin_approval_request_approve",
+                kwargs={"pk": self.pharmacist_user.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.pharmacist_user.refresh_from_db()
+        self.pharmacist_profile.refresh_from_db()
+        self.assertEqual(
+            self.pharmacist_user.approval_status,
+            ApprovalStatusChoices.APPROVED,
+        )
+        self.assertTrue(self.pharmacist_profile.is_approved)
+        self.assertTrue(response.data["request"]["details"]["is_approved"])
+
+    def test_admin_can_reject_pharmacist_request_and_profile(self):
+        self.pharmacist_profile.is_approved = True
+        self.pharmacist_profile.save(update_fields=["is_approved", "updated_at"])
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse(
+                "accounts:admin_approval_request_reject",
+                kwargs={"pk": self.pharmacist_user.id},
+            ),
+            {"reason": "Invalid license"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.pharmacist_user.refresh_from_db()
+        self.pharmacist_profile.refresh_from_db()
+        self.assertEqual(
+            self.pharmacist_user.approval_status,
+            ApprovalStatusChoices.REJECTED,
+        )
+        self.assertFalse(self.pharmacist_profile.is_approved)
+        self.assertFalse(response.data["request"]["details"]["is_approved"])
+
+    def test_old_existing_approval_endpoint_still_works(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            reverse("accounts:approve_user", kwargs={"pk": self.patient_user.id}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.patient_user.refresh_from_db()
+        self.assertEqual(
+            self.patient_user.approval_status,
+            ApprovalStatusChoices.APPROVED,
+        )
