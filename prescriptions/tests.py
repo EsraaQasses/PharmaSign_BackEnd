@@ -786,7 +786,6 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                         "Take one tablet after food three times a day"
                     ),
                     "unit_price": "1000.00",
-                    "quantity": "1",
                 }
             ],
         }
@@ -1580,7 +1579,6 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "duration": "7 days",
                 "instructions": "Take after food",
                 "unit_price": "2500.00",
-                "quantity": "2",
             },
             format="json",
         )
@@ -1680,7 +1678,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(str(item.quantity), "4.00")
         self.assertEqual(str(item.line_total), "84.00")
 
-    def test_create_item_without_unit_price_fails(self):
+    def test_create_item_with_unit_price_without_quantity_defaults_to_one(self):
         prescription = self._create_prescription(with_item=False)
 
         response = self.client.post(
@@ -1689,16 +1687,21 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 kwargs={"prescription_id": prescription.id},
             ),
             {
-                "medication_name": "Missing Unit Price Med",
-                "quantity": "1",
+                "medication_name": "Default Quantity Med",
+                "unit_price": "2500.00",
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["unit_price"][0], "This field is required.")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["unit_price"], "2500.00")
+        self.assertEqual(response.data["quantity"], "1.00")
+        self.assertEqual(response.data["line_total"], "2500.00")
+        item = prescription.items.get(pk=response.data["id"])
+        self.assertEqual(str(item.quantity), "1.00")
+        self.assertEqual(str(item.line_total), "2500.00")
 
-    def test_create_item_without_quantity_fails(self):
+    def test_create_item_without_unit_price_or_price_fails(self):
         prescription = self._create_prescription(with_item=False)
 
         response = self.client.post(
@@ -1707,16 +1710,15 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 kwargs={"prescription_id": prescription.id},
             ),
             {
-                "medication_name": "Missing Quantity Med",
-                "unit_price": "1000.00",
+                "medication_name": "Missing Price Med",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["quantity"][0], "This field is required.")
+        self.assertEqual(response.data["unit_price"][0], "This field is required.")
 
-    def test_create_item_without_price_and_quantity_returns_required_errors(self):
+    def test_create_item_with_legacy_price_without_quantity_defaults_to_one(self):
         prescription = self._create_prescription(with_item=False)
 
         response = self.client.post(
@@ -1724,13 +1726,18 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "pharmacist-prescription-items",
                 kwargs={"prescription_id": prescription.id},
             ),
-            {"medication_name": "Missing Pricing Med"},
+            {
+                "medication_name": "Legacy Price Default Quantity Med",
+                "price": "1750.00",
+            },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["unit_price"][0], "This field is required.")
-        self.assertEqual(response.data["quantity"][0], "This field is required.")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["price"], "1750.00")
+        self.assertEqual(response.data["unit_price"], "1750.00")
+        self.assertEqual(response.data["quantity"], "1.00")
+        self.assertEqual(response.data["line_total"], "1750.00")
 
     def test_item_line_total_is_calculated_from_unit_price_and_quantity(self):
         prescription = self._create_prescription(with_item=False)

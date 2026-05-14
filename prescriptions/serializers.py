@@ -40,11 +40,8 @@ def require_create_pricing(serializer, attrs):
     initial_data = getattr(serializer, "initial_data", {}) or {}
     has_unit_price = "unit_price" in attrs or "unit_price" in initial_data
     has_legacy_price = "price" in attrs or "price" in initial_data
-    has_quantity = "quantity" in attrs or "quantity" in initial_data
     if not has_unit_price and not has_legacy_price:
         errors["unit_price"] = ["This field is required."]
-    if not has_quantity:
-        errors["quantity"] = ["This field is required."]
     if errors:
         raise serializers.ValidationError(errors)
 
