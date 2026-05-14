@@ -4,11 +4,13 @@ import tempfile
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import Count
+from django.db.models import Count, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import mixins, parsers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -30,6 +32,8 @@ from common.permissions import (
 from .constants import DOCTOR_SPECIALTY_OPTIONS
 from .models import Prescription, PrescriptionItem, SignQualityReport
 from .serializers import (
+    AdminPrescriptionLogDetailSerializer,
+    AdminPrescriptionLogListSerializer,
     AdminSignQualityReportSerializer,
     AdminSignQualityReportUpdateSerializer,
     ApproveTranscriptSerializer,
@@ -64,6 +68,11 @@ from transcriptions.exceptions import AudioTranscriptionError
 from transcriptions.services import transcribe_audio_file
 
 logger = logging.getLogger(__name__)
+
+
+class AdminPageNumberPagination(PageNumberPagination):
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 def ensure_draft_prescription(prescription):
@@ -1046,6 +1055,90 @@ class PatientSignQualityReportViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class AdminPrescriptionLogViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [IsAuthenticated, CanManagePatients]
+    pagination_class = AdminPageNumberPagination
+    http_method_names = ["get", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return AdminPrescriptionLogDetailSerializer
+        return AdminPrescriptionLogListSerializer
+
+    def get_queryset(self):
+        queryset = (
+            Prescription.objects.select_related(
+                "patient",
+                "patient__user",
+                "patient__organization",
+                "pharmacist",
+                "pharmacist__user",
+                "pharmacy",
+                "session",
+            )
+            .prefetch_related(
+                "items",
+                "access_logs",
+                "access_logs__accessed_by",
+            )
+            .annotate(
+                medicines_count=Count("items", distinct=True),
+                log_date=Coalesce("submitted_at", "prescribed_at", "created_at"),
+            )
+            .order_by("-log_date", "-created_at", "-id")
+        )
+
+        user = self.request.user
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if not user.is_superuser and staff_profile is not None:
+            queryset = queryset.filter(patient__organization=staff_profile.organization)
+
+        search = self.request.query_params.get("search")
+        if search:
+            search_filter = (
+                Q(patient__full_name__icontains=search)
+                | Q(patient__phone_number__icontains=search)
+                | Q(patient__user__phone_number__icontains=search)
+                | Q(pharmacy__name__icontains=search)
+                | Q(pharmacist__full_name__icontains=search)
+                | Q(doctor_name__icontains=search)
+                | Q(diagnosis__icontains=search)
+            )
+            if str(search).isdigit():
+                search_filter |= Q(id=int(search))
+            queryset = queryset.filter(search_filter)
+
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        pharmacy_id = self.request.query_params.get("pharmacy_id")
+        if pharmacy_id:
+            queryset = queryset.filter(pharmacy_id=pharmacy_id)
+
+        pharmacist_id = self.request.query_params.get("pharmacist_id")
+        if pharmacist_id:
+            queryset = queryset.filter(pharmacist_id=pharmacist_id)
+
+        patient_id = self.request.query_params.get("patient_id")
+        if patient_id:
+            queryset = queryset.filter(patient_id=patient_id)
+
+        date_from = self.request.query_params.get("date_from")
+        if date_from:
+            queryset = queryset.filter(log_date__date__gte=date_from)
+
+        date_to = self.request.query_params.get("date_to")
+        if date_to:
+            queryset = queryset.filter(log_date__date__lte=date_to)
+
+        return queryset
 
 
 class AdminSignQualityReportViewSet(

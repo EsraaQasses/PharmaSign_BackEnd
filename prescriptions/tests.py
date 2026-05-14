@@ -1,7 +1,7 @@
 import io
 import os
 import shutil
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -441,6 +441,251 @@ class SignQualityReportTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class AdminPrescriptionLogPhaseETests(APITestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Admin Logs Org")
+        self.admin_user = User.objects.create_user(
+            email="admin.logs@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        self.patient_user = User.objects.create_user(
+            email="logs.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            phone_number="7200001",
+        )
+        self.patient = PatientProfile.objects.create(
+            user=self.patient_user,
+            organization=self.organization,
+            full_name="Log Patient",
+            phone_number="7200001",
+            birth_date=date(1993, 4, 5),
+            gender=GenderChoices.FEMALE,
+            hearing_disability_level="moderate",
+        )
+        self.pharmacist_user = User.objects.create_user(
+            email="logs.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+            phone_number="7200002",
+        )
+        self.pharmacy = Pharmacy.objects.create(
+            name="Log Pharmacy",
+            address="Log Address",
+            phone_number="011720000",
+            organization=self.organization,
+        )
+        self.pharmacist = PharmacistProfile.objects.create(
+            user=self.pharmacist_user,
+            pharmacy=self.pharmacy,
+            full_name="Log Pharmacist",
+            license_number="LOG-LIC",
+            is_approved=True,
+        )
+        self.prescribed_at = timezone.now() - timedelta(days=2)
+        self.submitted_at = timezone.now() - timedelta(days=1)
+        self.prescription = Prescription.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name="Log Doctor",
+            doctor_specialty="General",
+            diagnosis="Log Diagnosis",
+            status=PrescriptionStatusChoices.SUBMITTED,
+            prescribed_at=self.prescribed_at,
+            submitted_at=self.submitted_at,
+            notes="Log notes",
+        )
+        self.item = PrescriptionItem.objects.create(
+            prescription=self.prescription,
+            medicine_name="Log Medicine",
+            dosage="10mg",
+            frequency="daily",
+            duration="7 days",
+            instructions_text="Take after food",
+            unit_price="1200.00",
+            quantity="2",
+            transcription_status=TranscriptionStatusChoices.COMPLETED,
+            instructions_transcript_raw="Raw transcript",
+            instructions_transcript_edited="Edited transcript",
+            sign_status=SignStatusChoices.COMPLETED,
+        )
+        PrescriptionItem.objects.create(
+            prescription=self.prescription,
+            medicine_name="Second Log Medicine",
+            unit_price="800.00",
+            quantity="3",
+        )
+        PrescriptionAccessLog.objects.create(
+            prescription=self.prescription,
+            accessed_by=self.pharmacist_user,
+            access_type="view",
+        )
+        self.other_prescription = Prescription.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name="Other Doctor",
+            status=PrescriptionStatusChoices.DRAFT,
+            prescribed_at=timezone.now() - timedelta(days=10),
+        )
+
+    def test_admin_can_list_prescription_logs(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(reverse("admin-prescription-log-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data["count"], 2)
+        row = response.data["results"][0]
+        self.assertIn("patient", row)
+        self.assertIn("pharmacy", row)
+        self.assertIn("pharmacist", row)
+        self.assertIn("date", row)
+        self.assertEqual(row["total_price"], "4800.00")
+        self.assertEqual(row["currency"], "SYP")
+
+    def test_non_admin_cannot_list_prescription_logs(self):
+        self.client.force_authenticate(self.patient_user)
+
+        response = self.client.get(reverse("admin-prescription-log-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_response_is_paginated_and_includes_medicines_count(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"page_size": 1},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("count", response.data)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertIn("medicines_count", response.data["results"][0])
+
+    def test_list_search_works_by_patient_name_or_prescription_id(self):
+        self.client.force_authenticate(self.admin_user)
+
+        name_response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"search": "Log Patient"},
+        )
+        id_response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"search": str(self.prescription.id)},
+        )
+
+        self.assertEqual(name_response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(name_response.data["count"], 1)
+        self.assertEqual(id_response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            self.prescription.id,
+            {row["id"] for row in id_response.data["results"]},
+        )
+
+    def test_status_filter_works(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"status": PrescriptionStatusChoices.SUBMITTED},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["results"])
+        self.assertTrue(
+            all(
+                row["status"] == PrescriptionStatusChoices.SUBMITTED
+                for row in response.data["results"]
+            )
+        )
+
+    def test_pharmacy_filter_works(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"pharmacy_id": self.pharmacy.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data["count"], 2)
+        self.assertTrue(
+            all(
+                row["pharmacy"]["id"] == self.pharmacy.id
+                for row in response.data["results"]
+            )
+        )
+
+    def test_date_from_date_to_filters_work(self):
+        self.client.force_authenticate(self.admin_user)
+        target_date = self.submitted_at.date().isoformat()
+
+        response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {
+                "date_from": target_date,
+                "date_to": target_date,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in response.data["results"]}
+        self.assertIn(self.prescription.id, ids)
+        self.assertNotIn(self.other_prescription.id, ids)
+
+    def test_admin_can_retrieve_prescription_log_detail(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-detail", kwargs={"pk": self.prescription.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.prescription.id)
+        self.assertEqual(response.data["patient"]["full_name"], "Log Patient")
+        self.assertEqual(response.data["pharmacy"]["name"], "Log Pharmacy")
+        self.assertEqual(response.data["pharmacist"]["license_number"], "LOG-LIC")
+        self.assertEqual(response.data["total_price"], "4800.00")
+        self.assertEqual(response.data["currency"], "SYP")
+
+    def test_detail_includes_items_and_access_logs(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-detail", kwargs={"pk": self.prescription.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["medicines_count"], 2)
+        self.assertEqual(len(response.data["items"]), 2)
+        first_item = response.data["items"][0]
+        self.assertIn("instructions", first_item)
+        self.assertIn("unit_price", first_item)
+        self.assertIn("quantity", first_item)
+        self.assertIn("line_total", first_item)
+        self.assertIn("raw_transcript", first_item)
+        self.assertIn("edited_transcript", first_item)
+        self.assertTrue(response.data["access_logs"])
+        log = response.data["access_logs"][0]
+        self.assertEqual(log["accessed_by"]["id"], self.pharmacist_user.id)
+        self.assertEqual(log["accessed_by"]["role"], RoleChoices.PHARMACIST)
+
+    def test_existing_prescription_detail_endpoint_still_works_for_admin(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("prescription-detail", kwargs={"pk": self.prescription.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.prescription.id)
+
+
 class PharmacistPrescriptionMVPTests(APITestCase):
     def setUp(self):
         self.patient_user = User.objects.create_user(
@@ -540,6 +785,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                     "instructions_text": (
                         "Take one tablet after food three times a day"
                     ),
+                    "unit_price": "1000.00",
+                    "quantity": "1",
                 }
             ],
         }
@@ -595,6 +842,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "instructions",
                 "quantity",
                 "price",
+                "unit_price",
+                "line_total",
                 "image_url",
                 "audio_url",
                 "video_url",
@@ -984,6 +1233,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "frequency": "twice daily",
                 "duration": "3 days",
                 "instructions_text": "Take after food",
+                "unit_price": "500.00",
+                "quantity": "1",
             },
             format="json",
         )
@@ -1255,6 +1506,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
     def test_patient_can_retrieve_own_submitted_prescription(self):
         prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.unit_price = "1500.00"
+        item.quantity = "2"
+        item.save()
         self.patient.qr_code_value = "patient-prescription-qr"
         self.patient.qr_is_active = True
         self.patient.save(update_fields=["qr_code_value", "qr_is_active", "updated_at"])
@@ -1269,6 +1524,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], prescription.id)
+        self.assertEqual(response.data["total_price"], "3000.00")
+        self.assertEqual(response.data["currency"], "SYP")
         self.assertEqual(
             set(response.data["patient"].keys()),
             {"id", "full_name", "phone_number"},
@@ -1322,6 +1579,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "frequency": "Twice daily",
                 "duration": "7 days",
                 "instructions": "Take after food",
+                "unit_price": "2500.00",
+                "quantity": "2",
             },
             format="json",
         )
@@ -1351,10 +1610,16 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["medication_name"], "Priced Med")
         self.assertEqual(response.data["price"], "12.50")
-        self.assertEqual(response.data["quantity"], 3)
+        self.assertEqual(response.data["unit_price"], "12.50")
+        self.assertEqual(response.data["quantity"], "3.00")
+        self.assertEqual(response.data["line_total"], "37.50")
         item = prescription.items.get(pk=response.data["id"])
         self.assertEqual(str(item.price), "12.50")
-        self.assertEqual(item.quantity, 3)
+        self.assertEqual(str(item.unit_price), "12.50")
+        self.assertEqual(str(item.quantity), "3.00")
+        self.assertEqual(str(item.line_total), "37.50")
+        prescription.refresh_from_db()
+        self.assertEqual(str(prescription.total_price), "37.50")
 
     def test_pharmacist_can_update_item_with_price_and_quantity(self):
         prescription = self._create_prescription()
@@ -1374,10 +1639,16 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["price"], "8.75")
-        self.assertEqual(response.data["quantity"], 2)
+        self.assertEqual(response.data["unit_price"], "8.75")
+        self.assertEqual(response.data["quantity"], "2.00")
+        self.assertEqual(response.data["line_total"], "17.50")
         item.refresh_from_db()
         self.assertEqual(str(item.price), "8.75")
-        self.assertEqual(item.quantity, 2)
+        self.assertEqual(str(item.unit_price), "8.75")
+        self.assertEqual(str(item.quantity), "2.00")
+        self.assertEqual(str(item.line_total), "17.50")
+        prescription.refresh_from_db()
+        self.assertEqual(str(prescription.total_price), "17.50")
 
     def test_nested_prescription_create_saves_item_price_and_quantity(self):
         payload = self._create_payload(
@@ -1398,12 +1669,18 @@ class PharmacistPrescriptionMVPTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["items"][0]["price"], "21.00")
-        self.assertEqual(response.data["items"][0]["quantity"], 4)
+        self.assertEqual(response.data["items"][0]["unit_price"], "21.00")
+        self.assertEqual(response.data["items"][0]["quantity"], "4.00")
+        self.assertEqual(response.data["items"][0]["line_total"], "84.00")
+        self.assertEqual(response.data["total_price"], "84.00")
+        self.assertEqual(response.data["currency"], "SYP")
         item = Prescription.objects.get(pk=response.data["id"]).items.get()
         self.assertEqual(str(item.price), "21.00")
-        self.assertEqual(item.quantity, 4)
+        self.assertEqual(str(item.unit_price), "21.00")
+        self.assertEqual(str(item.quantity), "4.00")
+        self.assertEqual(str(item.line_total), "84.00")
 
-    def test_omitted_item_price_and_quantity_keep_defaults(self):
+    def test_create_item_without_unit_price_fails(self):
         prescription = self._create_prescription(with_item=False)
 
         response = self.client.post(
@@ -1411,16 +1688,138 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "pharmacist-prescription-items",
                 kwargs={"prescription_id": prescription.id},
             ),
-            {"medication_name": "Default Price Med"},
+            {
+                "medication_name": "Missing Unit Price Med",
+                "quantity": "1",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["unit_price"][0], "This field is required.")
+
+    def test_create_item_without_quantity_fails(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Missing Quantity Med",
+                "unit_price": "1000.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["quantity"][0], "This field is required.")
+
+    def test_create_item_without_price_and_quantity_returns_required_errors(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {"medication_name": "Missing Pricing Med"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["unit_price"][0], "This field is required.")
+        self.assertEqual(response.data["quantity"][0], "This field is required.")
+
+    def test_item_line_total_is_calculated_from_unit_price_and_quantity(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Billing Med",
+                "unit_price": "2500.00",
+                "quantity": "2",
+            },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["price"], "0.00")
-        self.assertIsNone(response.data["quantity"])
+        self.assertEqual(response.data["unit_price"], "2500.00")
+        self.assertEqual(response.data["quantity"], "2.00")
+        self.assertEqual(response.data["line_total"], "5000.00")
         item = prescription.items.get(pk=response.data["id"])
-        self.assertEqual(str(item.price), "0.00")
-        self.assertIsNone(item.quantity)
+        self.assertEqual(str(item.line_total), "5000.00")
+
+    def test_prescription_total_price_is_calculated_from_multiple_items(self):
+        prescription = self._create_prescription(with_item=False)
+
+        PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="First Billing Med",
+            unit_price="1000.00",
+            quantity="2",
+        )
+        PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Second Billing Med",
+            unit_price="750.50",
+            quantity="3",
+        )
+
+        prescription.refresh_from_db()
+        self.assertEqual(str(prescription.total_price), "4251.50")
+
+    def test_updating_item_unit_price_recalculates_totals(self):
+        prescription = self._create_prescription(with_item=False)
+        item = PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Update Price Med",
+            unit_price="10.00",
+            quantity="2",
+        )
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"unit_price": "12.50"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["line_total"], "25.00")
+        prescription.refresh_from_db()
+        self.assertEqual(str(prescription.total_price), "25.00")
+
+    def test_updating_item_quantity_recalculates_totals(self):
+        prescription = self._create_prescription(with_item=False)
+        item = PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Update Quantity Med",
+            unit_price="10.00",
+            quantity="2",
+        )
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"quantity": "3.5"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["quantity"], "3.50")
+        self.assertEqual(response.data["line_total"], "35.00")
+        prescription.refresh_from_db()
+        self.assertEqual(str(prescription.total_price), "35.00")
 
     def test_negative_item_price_fails(self):
         prescription = self._create_prescription(with_item=False)
@@ -1440,6 +1839,42 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("price", response.data)
 
+    def test_negative_item_unit_price_fails(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Bad Unit Price Med",
+                "unit_price": "-1.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unit_price", response.data)
+
+    def test_zero_item_quantity_fails(self):
+        prescription = self._create_prescription(with_item=False)
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-items",
+                kwargs={"prescription_id": prescription.id},
+            ),
+            {
+                "medication_name": "Zero Quantity Med",
+                "quantity": "0",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("quantity", response.data)
+
     def test_negative_item_quantity_fails(self):
         prescription = self._create_prescription(with_item=False)
 
@@ -1458,6 +1893,38 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("quantity", response.data)
 
+    def test_patch_with_invalid_unit_price_fails(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"unit_price": "-0.01"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unit_price", response.data)
+
+    def test_patch_with_invalid_quantity_fails(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+
+        response = self.client.patch(
+            reverse(
+                "pharmacist-prescription-item-detail",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {"quantity": "0"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("quantity", response.data)
+
     def test_medicine_name_alias_still_creates_medication_name_response(self):
         prescription = self._create_prescription(with_item=False)
 
@@ -1466,7 +1933,11 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "pharmacist-prescription-items",
                 kwargs={"prescription_id": prescription.id},
             ),
-            {"medicine_name": "Legacy Alias Med"},
+            {
+                "medicine_name": "Legacy Alias Med",
+                "unit_price": "1000.00",
+                "quantity": "1",
+            },
             format="json",
         )
 
@@ -1504,6 +1975,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             {
                 "medication_name": "Amoxicillin",
                 "image": self.build_image_upload(),
+                "unit_price": "1500.00",
+                "quantity": "1",
             },
             format="multipart",
         )
@@ -2388,6 +2861,7 @@ class PrescriptionMediaUploadTests(APITestCase):
             {
                 "medicine_name": "Test Med",
                 "price": "10.00",
+                "quantity": "1",
                 "instructions_audio": invalid_audio,
             },
             format="multipart",
@@ -2408,6 +2882,7 @@ class PrescriptionMediaUploadTests(APITestCase):
             {
                 "medicine_name": "Test Med",
                 "price": "10.00",
+                "quantity": "1",
                 "medicine_image": invalid_image,
             },
             format="multipart",
@@ -2434,6 +2909,7 @@ class PrescriptionMediaUploadTests(APITestCase):
                     {
                         "medicine_name": "Stored Med",
                         "price": "15.00",
+                        "quantity": "1",
                         "medicine_image": valid_image,
                     },
                     format="multipart",

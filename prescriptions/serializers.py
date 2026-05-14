@@ -13,7 +13,40 @@ from common.uploads import (
 from patients.models import PatientProfile, PatientSession
 from transcriptions.validators import validate_transcription_audio_upload
 
-from .models import Prescription, PrescriptionItem, SignQualityReport
+from .models import (
+    Prescription,
+    PrescriptionAccessLog,
+    PrescriptionItem,
+    SignQualityReport,
+)
+
+
+def validate_unit_price_value(value):
+    if value < 0:
+        raise serializers.ValidationError("Unit price must not be negative.")
+    return value
+
+
+def validate_billing_quantity_value(value):
+    if value is not None and value <= 0:
+        raise serializers.ValidationError("Quantity must be greater than zero.")
+    return value
+
+
+def require_create_pricing(serializer, attrs):
+    if serializer.partial:
+        return
+    errors = {}
+    initial_data = getattr(serializer, "initial_data", {}) or {}
+    has_unit_price = "unit_price" in attrs or "unit_price" in initial_data
+    has_legacy_price = "price" in attrs or "price" in initial_data
+    has_quantity = "quantity" in attrs or "quantity" in initial_data
+    if not has_unit_price and not has_legacy_price:
+        errors["unit_price"] = ["This field is required."]
+    if not has_quantity:
+        errors["quantity"] = ["This field is required."]
+    if errors:
+        raise serializers.ValidationError(errors)
 
 
 def build_prescription_patient_payload(patient):
@@ -104,6 +137,8 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
             "instructions",
             "quantity",
             "price",
+            "unit_price",
+            "line_total",
             "image_url",
             "audio_url",
             "video_url",
@@ -153,7 +188,9 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
             "instructions_text",
             "medicine_image",
             "price",
+            "unit_price",
             "quantity",
+            "line_total",
             "instructions_audio",
             "transcription_status",
             "transcription_provider",
@@ -169,7 +206,13 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "prescription", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "prescription",
+            "line_total",
+            "created_at",
+            "updated_at",
+        )
 
 
 class SafePrescriptionItemSerializer(serializers.ModelSerializer):
@@ -199,14 +242,13 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
 
 class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
     def validate_price(self, value):
-        if value < 0:
-            raise serializers.ValidationError("Price must not be negative.")
-        return value
+        return validate_unit_price_value(value)
+
+    def validate_unit_price(self, value):
+        return validate_unit_price_value(value)
 
     def validate_quantity(self, value):
-        if value is not None and value < 0:
-            raise serializers.ValidationError("Quantity must not be negative.")
-        return value
+        return validate_billing_quantity_value(value)
 
     def validate_medicine_image(self, value):
         if value:
@@ -233,7 +275,9 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
             "instructions_text",
             "medicine_image",
             "price",
+            "unit_price",
             "quantity",
+            "line_total",
             "instructions_audio",
             "instructions_transcript_raw",
             "instructions_transcript_edited",
@@ -242,18 +286,26 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
         )
+        read_only_fields = ("line_total",)
+
+    def validate(self, attrs):
+        require_create_pricing(self, attrs)
+        if "unit_price" not in attrs and "price" in attrs:
+            attrs["unit_price"] = attrs["price"]
+        if "price" not in attrs and "unit_price" in attrs:
+            attrs["price"] = attrs["unit_price"]
+        return attrs
 
 
 class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
     def validate_price(self, value):
-        if value < 0:
-            raise serializers.ValidationError("Price must not be negative.")
-        return value
+        return validate_unit_price_value(value)
+
+    def validate_unit_price(self, value):
+        return validate_unit_price_value(value)
 
     def validate_quantity(self, value):
-        if value is not None and value < 0:
-            raise serializers.ValidationError("Quantity must not be negative.")
-        return value
+        return validate_billing_quantity_value(value)
 
     def validate_medicine_image(self, value):
         if value:
@@ -280,7 +332,9 @@ class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
             "instructions_text",
             "medicine_image",
             "price",
+            "unit_price",
             "quantity",
+            "line_total",
             "instructions_audio",
             "instructions_transcript_raw",
             "instructions_transcript_edited",
@@ -289,6 +343,14 @@ class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
         )
+        read_only_fields = ("line_total",)
+
+    def validate(self, attrs):
+        if "unit_price" not in attrs and "price" in attrs:
+            attrs["unit_price"] = attrs["price"]
+        if "price" not in attrs and "unit_price" in attrs:
+            attrs["price"] = attrs["unit_price"]
+        return attrs
 
 
 class PrescriptionSerializer(serializers.ModelSerializer):
@@ -315,6 +377,8 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "submitted_at",
             "delivered_at",
             "notes",
+            "total_price",
+            "currency",
             "reused_from",
             "created_at",
             "updated_at",
@@ -330,6 +394,8 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "items",
+            "total_price",
+            "currency",
         )
 
     def get_patient(self, obj):
@@ -340,6 +406,195 @@ class PrescriptionSerializer(serializers.ModelSerializer):
 
     def get_pharmacy(self, obj):
         return build_prescription_pharmacy_payload(obj.pharmacy)
+
+
+class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
+    patient = serializers.SerializerMethodField()
+    patient_name = serializers.CharField(source="patient.full_name", read_only=True)
+    pharmacy = serializers.SerializerMethodField()
+    pharmacy_name = serializers.CharField(source="pharmacy.name", read_only=True)
+    pharmacist = serializers.SerializerMethodField()
+    pharmacist_name = serializers.CharField(source="pharmacist.full_name", read_only=True)
+    date = serializers.SerializerMethodField()
+    medicines_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Prescription
+        fields = (
+            "id",
+            "patient",
+            "patient_name",
+            "pharmacy",
+            "pharmacy_name",
+            "pharmacist",
+            "pharmacist_name",
+            "doctor_name",
+            "doctor_specialty",
+            "diagnosis",
+            "date",
+            "prescribed_at",
+            "submitted_at",
+            "delivered_at",
+            "medicines_count",
+            "status",
+            "notes",
+            "total_price",
+            "currency",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_patient(self, obj):
+        return {
+            "id": obj.patient_id,
+            "full_name": obj.patient.full_name,
+            "phone_number": obj.patient.phone_number or obj.patient.user.phone_number or "",
+        }
+
+    def get_pharmacy(self, obj):
+        return {
+            "id": obj.pharmacy_id,
+            "name": obj.pharmacy.name,
+        }
+
+    def get_pharmacist(self, obj):
+        return {
+            "id": obj.pharmacist_id,
+            "full_name": obj.pharmacist.full_name,
+        }
+
+    def get_date(self, obj):
+        return obj.submitted_at or obj.prescribed_at or obj.created_at
+
+    def get_medicines_count(self, obj):
+        if hasattr(obj, "medicines_count"):
+            return obj.medicines_count
+        return obj.items.count()
+
+
+class AdminPrescriptionLogItemSerializer(serializers.ModelSerializer):
+    instructions = serializers.CharField(source="instructions_text", read_only=True)
+    raw_transcript = serializers.CharField(
+        source="instructions_transcript_raw",
+        read_only=True,
+    )
+    edited_transcript = serializers.CharField(
+        source="instructions_transcript_edited",
+        read_only=True,
+    )
+    sign_video_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrescriptionItem
+        fields = (
+            "id",
+            "medicine_name",
+            "dosage",
+            "frequency",
+            "duration",
+            "instructions",
+            "unit_price",
+            "quantity",
+            "line_total",
+            "transcription_status",
+            "sign_status",
+            "raw_transcript",
+            "edited_transcript",
+            "sign_video_url",
+        )
+        read_only_fields = fields
+
+    def get_sign_video_url(self, obj):
+        return build_file_url(self, obj.sign_language_video)
+
+
+class AdminPrescriptionAccessLogSerializer(serializers.ModelSerializer):
+    accessed_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrescriptionAccessLog
+        fields = (
+            "id",
+            "accessed_by",
+            "access_type",
+            "timestamp",
+        )
+        read_only_fields = fields
+
+    def get_accessed_by(self, obj):
+        if obj.accessed_by_id is None:
+            return None
+        return {
+            "id": obj.accessed_by_id,
+            "role": obj.accessed_by.role,
+            "email": obj.accessed_by.email,
+            "phone_number": obj.accessed_by.phone_number,
+        }
+
+
+class AdminPrescriptionLogDetailSerializer(serializers.ModelSerializer):
+    patient = serializers.SerializerMethodField()
+    pharmacy = serializers.SerializerMethodField()
+    pharmacist = serializers.SerializerMethodField()
+    medicines_count = serializers.SerializerMethodField()
+    items = AdminPrescriptionLogItemSerializer(many=True, read_only=True)
+    access_logs = AdminPrescriptionAccessLogSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Prescription
+        fields = (
+            "id",
+            "patient",
+            "pharmacy",
+            "pharmacist",
+            "doctor_name",
+            "doctor_specialty",
+            "diagnosis",
+            "status",
+            "prescribed_at",
+            "submitted_at",
+            "delivered_at",
+            "notes",
+            "total_price",
+            "currency",
+            "medicines_count",
+            "items",
+            "access_logs",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_patient(self, obj):
+        return {
+            "id": obj.patient_id,
+            "full_name": obj.patient.full_name,
+            "phone_number": obj.patient.phone_number or obj.patient.user.phone_number or "",
+            "gender": obj.patient.gender,
+            "birth_date": obj.patient.birth_date,
+            "hearing_disability_level": obj.patient.hearing_disability_level,
+        }
+
+    def get_pharmacy(self, obj):
+        return {
+            "id": obj.pharmacy_id,
+            "name": obj.pharmacy.name,
+            "phone_number": obj.pharmacy.phone_number,
+            "address": obj.pharmacy.address,
+        }
+
+    def get_pharmacist(self, obj):
+        return {
+            "id": obj.pharmacist_id,
+            "full_name": obj.pharmacist.full_name,
+            "license_number": obj.pharmacist.license_number,
+        }
+
+    def get_medicines_count(self, obj):
+        if hasattr(obj, "medicines_count"):
+            return obj.medicines_count
+        return obj.items.count()
 
 
 class PrescriptionCreateSerializer(serializers.ModelSerializer):
@@ -388,21 +643,29 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
     medication_image = serializers.FileField(required=False, write_only=True)
     medicine_image = serializers.FileField(required=False, write_only=True)
     price = serializers.DecimalField(
-        max_digits=10,
+        max_digits=12,
         decimal_places=2,
         required=False,
     )
-    quantity = serializers.IntegerField(required=False, allow_null=True)
+    unit_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+    )
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+    )
 
     def validate_price(self, value):
-        if value < 0:
-            raise serializers.ValidationError("Price must not be negative.")
-        return value
+        return validate_unit_price_value(value)
+
+    def validate_unit_price(self, value):
+        return validate_unit_price_value(value)
 
     def validate_quantity(self, value):
-        if value is not None and value < 0:
-            raise serializers.ValidationError("Quantity must not be negative.")
-        return value
+        return validate_billing_quantity_value(value)
 
     def validate(self, attrs):
         medicine_name = attrs.pop("medication_name", None) or attrs.get("medicine_name")
@@ -419,6 +682,11 @@ class PharmacistPrescriptionItemInputSerializer(serializers.Serializer):
             attrs["instructions_text"] = instructions_text
         if image is not None:
             attrs["medicine_image"] = validate_item_image_upload(image)
+        require_create_pricing(self, attrs)
+        if "unit_price" not in attrs and "price" in attrs:
+            attrs["unit_price"] = attrs["price"]
+        if "price" not in attrs and "unit_price" in attrs:
+            attrs["price"] = attrs["unit_price"]
         if not self.partial and not attrs.get("medicine_name"):
             raise serializers.ValidationError(
                 {"medication_name": "This field is required."}
@@ -520,6 +788,8 @@ class PharmacistPrescriptionSerializer(serializers.ModelSerializer):
             "submitted_at",
             "delivered_at",
             "notes",
+            "total_price",
+            "currency",
             "items",
             "created_at",
             "updated_at",

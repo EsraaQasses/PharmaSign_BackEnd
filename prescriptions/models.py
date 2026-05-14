@@ -1,6 +1,9 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Sum
 from django.utils import timezone
 
 from common.choices import (
@@ -18,6 +21,8 @@ from common.uploads import (
 )
 from patients.models import PatientProfile
 from pharmacies.models import PharmacistProfile, Pharmacy
+
+MONEY_QUANTUM = Decimal("0.01")
 
 
 def medicine_image_upload_to(instance, filename):
@@ -67,6 +72,8 @@ class Prescription(TimeStampedModel):
     submitted_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    total_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3, default="SYP")
     reused_from = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -100,6 +107,13 @@ class Prescription(TimeStampedModel):
         self.full_clean()
         return super().save(*args, **kwargs)
 
+    def recalculate_total_price(self):
+        total = self.items.aggregate(total=Sum("line_total"))["total"] or Decimal(
+            "0.00"
+        )
+        self.total_price = total.quantize(MONEY_QUANTUM)
+        self.save(update_fields=["total_price", "updated_at"])
+
     def __str__(self):
         return f"Prescription #{self.pk} - {self.patient.full_name}"
 
@@ -119,7 +133,9 @@ class PrescriptionItem(TimeStampedModel):
         upload_to=medicine_image_upload_to, null=True, blank=True
     )
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    quantity = models.PositiveIntegerField(null=True, blank=True)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    quantity = models.DecimalField(max_digits=12, decimal_places=2, default=1)
+    line_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     instructions_audio = models.FileField(
         upload_to=instructions_audio_upload_to,
         null=True,
@@ -158,6 +174,16 @@ class PrescriptionItem(TimeStampedModel):
         ]
 
     def clean(self):
+        if self.unit_price is None:
+            self.unit_price = Decimal("0.00")
+        if self.quantity is None:
+            self.quantity = Decimal("1.00")
+        self.unit_price = Decimal(str(self.unit_price))
+        self.quantity = Decimal(str(self.quantity))
+        if self.unit_price < 0:
+            raise ValidationError({"unit_price": "Unit price must not be negative."})
+        if self.quantity <= 0:
+            raise ValidationError({"quantity": "Quantity must be greater than zero."})
         if self.medicine_image:
             validate_image_upload(self.medicine_image)
         if self.instructions_audio:
@@ -171,9 +197,36 @@ class PrescriptionItem(TimeStampedModel):
         if self.sign_language_video:
             validate_video_upload(self.sign_language_video)
 
+    def calculate_line_total(self):
+        self.unit_price = Decimal(str(self.unit_price or Decimal("0.00")))
+        self.quantity = Decimal(str(self.quantity or Decimal("1.00")))
+        self.line_total = (self.unit_price * self.quantity).quantize(MONEY_QUANTUM)
+
     def save(self, *args, **kwargs):
+        price = Decimal(str(self.price or Decimal("0.00")))
+        unit_price = Decimal(str(self.unit_price or Decimal("0.00")))
+        if unit_price == Decimal("0.00") and price != Decimal("0.00"):
+            self.unit_price = price
+        if Decimal(str(self.unit_price or Decimal("0.00"))) <= Decimal("99999999.99"):
+            self.price = self.unit_price
+        self.calculate_line_total()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            if {"price", "unit_price", "quantity"} & update_fields:
+                update_fields.update({"price", "unit_price", "line_total"})
+            kwargs["update_fields"] = list(update_fields)
         self.full_clean()
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        if self.prescription_id:
+            self.prescription.recalculate_total_price()
+        return result
+
+    def delete(self, *args, **kwargs):
+        prescription = self.prescription
+        result = super().delete(*args, **kwargs)
+        prescription.recalculate_total_price()
+        return result
 
     def __str__(self):
         return self.medicine_name
