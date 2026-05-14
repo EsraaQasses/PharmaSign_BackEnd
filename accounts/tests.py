@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 from django.urls import reverse
@@ -19,8 +20,54 @@ from pharmacies.models import PharmacistProfile, Pharmacy
 from prescriptions.models import Prescription, PrescriptionItem, SignQualityReport
 
 from .models import PhoneOTP, User
+from .otp_delivery import send_otp_code
 
 
+class OTPDeliveryTests(APITestCase):
+    @override_settings(
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="test-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_telegram_send_success(self, mock_post):
+        response = Mock(status_code=200)
+        response.json.return_value = {"ok": True}
+        mock_post.return_value = response
+
+        result = send_otp_code("5557000", PhoneOTP.PURPOSE_PATIENT_REGISTER, "123456")
+
+        self.assertEqual(result, {"channel": "telegram", "sent": True, "error": None})
+        mock_post.assert_called_once()
+        _url, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["timeout"], 10)
+        self.assertEqual(kwargs["json"]["chat_id"], "895444257")
+        self.assertIn("PharmaSign OTP code: 123456", kwargs["json"]["text"])
+
+    @override_settings(
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="test-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_telegram_send_failure(self, mock_post):
+        response = Mock(status_code=200)
+        response.json.return_value = {"ok": False, "description": "secret detail"}
+        mock_post.return_value = response
+
+        result = send_otp_code("5557000", PhoneOTP.PURPOSE_PATIENT_REGISTER, "123456")
+
+        self.assertEqual(result["channel"], "telegram")
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["error"], "Telegram OTP delivery failed.")
+        self.assertNotIn("secret detail", result["error"])
+
+
+@override_settings(OTP_DELIVERY_CHANNEL="debug")
 class AuthAndPatientFlowTests(APITestCase):
     def request_registration_otp(self, phone_number):
         response = self.client.post(
@@ -49,8 +96,9 @@ class AuthAndPatientFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["detail"], "OTP sent successfully")
+        self.assertEqual(response.data["detail"], "OTP sent successfully.")
         self.assertEqual(response.data["expires_in_seconds"], 300)
+        self.assertEqual(response.data["delivery"], {"channel": "debug", "sent": True})
         self.assertRegex(response.data["debug_otp"], r"^\d{6}$")
         self.assertEqual(PhoneOTP.objects.count(), 1)
         self.assertEqual(
@@ -128,6 +176,129 @@ class AuthAndPatientFlowTests(APITestCase):
         )
         self.assertEqual(response.data["code"], "otp_provider_not_configured")
         self.assertNotIn("debug_otp", response.data)
+
+    @override_settings(
+        DEBUG=False,
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="test-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_otp_request_endpoint_calls_telegram_delivery(self, mock_post):
+        telegram_response = Mock(status_code=200)
+        telegram_response.json.return_value = {"ok": True}
+        mock_post.return_value = telegram_response
+
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557030"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["detail"], "OTP sent successfully.")
+        self.assertEqual(
+            response.data["delivery"],
+            {"channel": "telegram", "sent": True},
+        )
+        self.assertNotIn("debug_otp", response.data)
+        mock_post.assert_called_once()
+        self.assertEqual(
+            PhoneOTP.objects.get(phone_number="5557030").purpose,
+            PhoneOTP.PURPOSE_PATIENT_REGISTER,
+        )
+
+    @override_settings(
+        DEBUG=False,
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="test-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_production_otp_response_does_not_include_raw_otp(self, mock_post):
+        telegram_response = Mock(status_code=200)
+        telegram_response.json.return_value = {"ok": True}
+        mock_post.return_value = telegram_response
+
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557031"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("debug_otp", response.data)
+        self.assertNotIn("otp", response.data)
+        sent_text = mock_post.call_args.kwargs["json"]["text"]
+        challenge = PhoneOTP.objects.get(phone_number="5557031")
+        self.assertNotIn(
+            sent_text.splitlines()[0].rsplit(" ", 1)[-1],
+            challenge.code_hash,
+        )
+
+    @override_settings(
+        DEBUG=False,
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="super-secret-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_bot_token_is_never_exposed_in_api_response(self, mock_post):
+        telegram_response = Mock(status_code=500)
+        telegram_response.json.return_value = {"ok": False}
+        mock_post.return_value = telegram_response
+
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557032"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "otp_delivery_failed")
+        self.assertNotIn("super-secret-token", str(response.data))
+
+    @override_settings(
+        DEBUG=False,
+        OTP_DELIVERY_CHANNEL="telegram",
+        OTP_TELEGRAM_ENABLED=True,
+        TELEGRAM_BOT_TOKEN="test-token",
+        TELEGRAM_DEFAULT_CHAT_ID="895444257",
+        TELEGRAM_REQUEST_TIMEOUT_SECONDS=10,
+    )
+    @patch("accounts.otp_delivery.requests.post")
+    def test_telegram_delivery_failure_returns_safe_response(self, mock_post):
+        telegram_response = Mock(status_code=200)
+        telegram_response.json.return_value = {
+            "ok": False,
+            "description": "raw api detail",
+        }
+        mock_post.return_value = telegram_response
+
+        response = self.client.post(
+            reverse("accounts:patient_register_request_otp"),
+            {"phone_number": "5557033"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["detail"], "OTP delivery failed.")
+        self.assertEqual(response.data["code"], "otp_delivery_failed")
+        self.assertEqual(
+            response.data["delivery"],
+            {
+                "channel": "telegram",
+                "sent": False,
+                "error": "Telegram OTP delivery failed.",
+            },
+        )
+        self.assertNotIn("raw api detail", str(response.data))
 
     @override_settings(DEBUG=True)
     def test_patient_register_without_otp_fails(self):

@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import PhoneOTP
+from .otp_delivery import send_otp_code
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,12 @@ def send_registration_otp_whatsapp(phone_number, otp):
     return
 
 
+class OTPDeliveryError(Exception):
+    def __init__(self, delivery):
+        self.delivery = delivery
+        super().__init__(delivery.get("error") or "OTP delivery failed.")
+
+
 def registration_purpose_for_role(role):
     if role == "patient":
         return PhoneOTP.PURPOSE_PATIENT_REGISTER
@@ -37,8 +44,10 @@ def registration_purpose_for_role(role):
 
 
 def generate_registration_otp(phone_number, purpose):
-    if not settings.DEBUG and not getattr(
-        settings, "OTP_DELIVERY_PROVIDER_CONFIGURED", False
+    if (
+        not settings.DEBUG
+        and getattr(settings, "OTP_DELIVERY_CHANNEL", "debug") != "telegram"
+        and not getattr(settings, "OTP_DELIVERY_PROVIDER_CONFIGURED", False)
     ):
         raise serializers.ValidationError(
             {
@@ -61,8 +70,20 @@ def generate_registration_otp(phone_number, purpose):
     )
     challenge.set_code(otp)
     challenge.save()
-    send_registration_otp_whatsapp(phone_number, otp)
-    return otp, challenge
+    delivery = send_otp_code(phone_number, purpose, otp)
+    if (
+        not delivery.get("sent")
+        and getattr(settings, "OTP_DELIVERY_CHANNEL", "debug") == "telegram"
+    ):
+        raise OTPDeliveryError(delivery)
+    if not delivery.get("sent"):
+        raise serializers.ValidationError(
+            {
+                "detail": delivery.get("error") or "OTP delivery provider is not configured",
+                "code": "otp_provider_not_configured",
+            }
+        )
+    return otp, challenge, delivery
 
 
 def validate_registration_otp(phone_number, otp, purpose):

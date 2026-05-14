@@ -37,6 +37,7 @@ from .serializers import (
     REJECTED_ACCOUNT_DETAIL,
     RegistrationOTPRequestSerializer,
 )
+from .services import OTPDeliveryError
 
 User = get_user_model()
 
@@ -201,6 +202,21 @@ class AuthViewSet(viewsets.ViewSet):
         payload["access"] = str(refresh.access_token)
         payload["refresh"] = str(refresh)
         return Response(payload, status=status_code)
+
+    def _otp_delivery_failed_response(self, exc):
+        delivery = {
+            "channel": exc.delivery.get("channel"),
+            "sent": False,
+            "error": exc.delivery.get("error") or "OTP delivery failed.",
+        }
+        return Response(
+            {
+                "detail": "OTP delivery failed.",
+                "code": "otp_delivery_failed",
+                "delivery": delivery,
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     def _admin_denied_response(self):
         return Response(
@@ -525,6 +541,8 @@ class AuthViewSet(viewsets.ViewSet):
             )
         try:
             return Response(serializer.save())
+        except OTPDeliveryError as exc:
+            return self._otp_delivery_failed_response(exc)
         except ValidationError as exc:
             return Response(
                 validation_error_payload(exc.detail),
@@ -543,6 +561,8 @@ class AuthViewSet(viewsets.ViewSet):
             )
         try:
             return Response(serializer.save())
+        except OTPDeliveryError as exc:
+            return self._otp_delivery_failed_response(exc)
         except ValidationError as exc:
             return Response(
                 validation_error_payload(exc.detail),
@@ -559,6 +579,8 @@ class AuthViewSet(viewsets.ViewSet):
             )
         try:
             return Response(serializer.save())
+        except OTPDeliveryError as exc:
+            return self._otp_delivery_failed_response(exc)
         except ValidationError as exc:
             return Response(
                 validation_error_payload(exc.detail),

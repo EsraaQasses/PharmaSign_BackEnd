@@ -235,13 +235,17 @@ class RegistrationOTPRequestSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         phone_number = self.validated_data["phone_number"]
-        otp, _challenge = generate_registration_otp(
+        otp, _challenge, delivery = generate_registration_otp(
             phone_number,
             self.validated_data["purpose"],
         )
         payload = {
-            "detail": "OTP sent successfully",
+            "detail": "OTP sent successfully.",
             "expires_in_seconds": OTP_EXPIRY_SECONDS,
+            "delivery": {
+                "channel": delivery["channel"],
+                "sent": delivery["sent"],
+            },
         }
         if settings.DEBUG:
             payload["debug_otp"] = otp
