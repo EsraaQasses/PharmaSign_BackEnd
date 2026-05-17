@@ -6,12 +6,13 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
+from common.api_errors import validation_error_payload
+from common.choices import RoleChoices
 from common.permissions import (
     CanManagePharmacists,
     IsPharmacistRole,
     IsPatientRole,
 )
-from common.choices import RoleChoices
 
 from .models import PharmacistProfile, Pharmacy
 from .serializers import (
@@ -117,7 +118,11 @@ class AdminPharmacyViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(
             data=request.data, context={"request": request}
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         pharmacy = serializer.save()
         return Response(
             AdminPharmacySerializer(pharmacy).data,
@@ -132,7 +137,11 @@ class AdminPharmacyViewSet(viewsets.ModelViewSet):
             partial=True,
             context={"request": request},
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         pharmacy = serializer.save()
         return Response(AdminPharmacySerializer(pharmacy).data)
 
