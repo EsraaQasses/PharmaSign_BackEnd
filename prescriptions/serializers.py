@@ -411,7 +411,9 @@ class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
     pharmacy = serializers.SerializerMethodField()
     pharmacy_name = serializers.CharField(source="pharmacy.name", read_only=True)
     pharmacist = serializers.SerializerMethodField()
-    pharmacist_name = serializers.CharField(source="pharmacist.full_name", read_only=True)
+    pharmacist_name = serializers.CharField(
+        source="pharmacist.full_name", read_only=True
+    )
     date = serializers.SerializerMethodField()
     medicines_count = serializers.SerializerMethodField()
 
@@ -446,7 +448,9 @@ class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
         return {
             "id": obj.patient_id,
             "full_name": obj.patient.full_name,
-            "phone_number": obj.patient.phone_number or obj.patient.user.phone_number or "",
+            "phone_number": obj.patient.phone_number
+            or obj.patient.user.phone_number
+            or "",
         }
 
     def get_pharmacy(self, obj):
@@ -567,7 +571,9 @@ class AdminPrescriptionLogDetailSerializer(serializers.ModelSerializer):
         return {
             "id": obj.patient_id,
             "full_name": obj.patient.full_name,
-            "phone_number": obj.patient.phone_number or obj.patient.user.phone_number or "",
+            "phone_number": obj.patient.phone_number
+            or obj.patient.user.phone_number
+            or "",
             "gender": obj.patient.gender,
             "birth_date": obj.patient.birth_date,
             "hearing_disability_level": obj.patient.hearing_disability_level,
@@ -701,11 +707,7 @@ class PharmacistPrescriptionItemAudioTranscriptionSerializer(serializers.Seriali
     voice = serializers.FileField(required=False, write_only=True)
 
     def validate(self, attrs):
-        audio = (
-            attrs.get("audio")
-            or attrs.get("audio_file")
-            or attrs.get("voice")
-        )
+        audio = attrs.get("audio") or attrs.get("audio_file") or attrs.get("voice")
         if audio is None:
             raise stable_error("Audio file is required.", "missing_audio_file")
         attrs["audio"] = validate_transcription_audio_upload(audio)
@@ -944,17 +946,23 @@ class PatientSignQualityReportCreateSerializer(serializers.Serializer):
 
 class AdminSignQualityReportSerializer(serializers.ModelSerializer):
     patient = serializers.SerializerMethodField()
-    prescription = serializers.IntegerField(source="prescription_id", read_only=True)
-    prescription_item = serializers.IntegerField(
-        source="prescription_item_id",
+    doctor_name = serializers.CharField(
+        source="prescription.doctor_name", read_only=True
+    )
+    doctor_specialty = serializers.CharField(
+        source="prescription.doctor_specialty",
         read_only=True,
     )
+    prescription = serializers.SerializerMethodField()
+    prescription_item = serializers.SerializerMethodField()
 
     class Meta:
         model = SignQualityReport
         fields = (
             "id",
             "patient",
+            "doctor_name",
+            "doctor_specialty",
             "prescription",
             "prescription_item",
             "medicine_name",
@@ -962,11 +970,37 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
             "report_type",
             "status",
             "created_at",
+            "updated_at",
         )
         read_only_fields = fields
 
     def get_patient(self, obj):
         return build_prescription_patient_payload(obj.patient)
+
+    def get_prescription(self, obj):
+        prescription = obj.prescription
+        return {
+            "id": prescription.id,
+            "status": prescription.status,
+            "prescribed_at": prescription.prescribed_at,
+            "submitted_at": prescription.submitted_at,
+        }
+
+    def get_prescription_item(self, obj):
+        item = obj.prescription_item
+        return {
+            "id": item.id,
+            "medicine_name": item.medicine_name,
+            "dosage": item.dosage,
+            "frequency": item.frequency,
+            "duration": item.duration,
+            "instructions_text": item.instructions_text,
+            "instructions_transcript_raw": item.instructions_transcript_raw,
+            "instructions_transcript_edited": item.instructions_transcript_edited,
+            "supporting_text": item.supporting_text,
+            "sign_status": item.sign_status,
+            "video_url": build_file_url(self, item.sign_language_video),
+        }
 
 
 class AdminSignQualityReportUpdateSerializer(serializers.ModelSerializer):

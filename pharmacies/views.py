@@ -88,7 +88,13 @@ class AdminPharmacyViewSet(viewsets.ModelViewSet):
         )
         staff_profile = getattr(self.request.user, "organization_staff_profile", None)
         if not self.request.user.is_superuser and staff_profile is not None:
-            queryset = queryset.filter(organization=staff_profile.organization)
+            if self.action == "partial_update":
+                queryset = queryset.filter(
+                    Q(organization=staff_profile.organization)
+                    | Q(organization__isnull=True)
+                )
+            else:
+                queryset = queryset.filter(organization=staff_profile.organization)
 
         search = self.request.query_params.get("search")
         if search:
@@ -108,7 +114,9 @@ class AdminPharmacyViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         pharmacy = serializer.save()
         return Response(
@@ -161,17 +169,16 @@ class AdminPharmacistViewSet(viewsets.ModelViewSet):
         return AdminPharmacistSerializer
 
     def get_queryset(self):
-        queryset = (
-            PharmacistProfile.objects.select_related(
-                "user",
-                "pharmacy",
-                "pharmacy__organization",
-            )
-            .order_by("-created_at", "-id")
-        )
+        queryset = PharmacistProfile.objects.select_related(
+            "user",
+            "pharmacy",
+            "pharmacy__organization",
+        ).order_by("-created_at", "-id")
         staff_profile = getattr(self.request.user, "organization_staff_profile", None)
         if not self.request.user.is_superuser and staff_profile is not None:
-            queryset = queryset.filter(pharmacy__organization=staff_profile.organization)
+            queryset = queryset.filter(
+                pharmacy__organization=staff_profile.organization
+            )
 
         search = self.request.query_params.get("search")
         if search:
@@ -209,7 +216,9 @@ class AdminPharmacistViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         pharmacist = serializer.save()
         payload = dict(AdminPharmacistSerializer(pharmacist).data)
@@ -252,9 +261,9 @@ class PublicContractedPharmacyViewSet(mixins.ListModelMixin, viewsets.GenericVie
     http_method_names = ["get", "head", "options"]
 
     def get_queryset(self):
-        return Pharmacy.objects.filter(
-            is_contracted_with_organization=True
-        ).order_by("name")
+        return Pharmacy.objects.filter(is_contracted_with_organization=True).order_by(
+            "name"
+        )
 
 
 class PatientPharmacyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -264,9 +273,9 @@ class PatientPharmacyViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     http_method_names = ["get", "head", "options"]
 
     def get_queryset(self):
-        return Pharmacy.objects.filter(
-            is_contracted_with_organization=True
-        ).order_by("name")
+        return Pharmacy.objects.filter(is_contracted_with_organization=True).order_by(
+            "name"
+        )
 
 
 class PharmacistProfileViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):

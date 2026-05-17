@@ -327,6 +327,218 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertEqual(deleted_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Pharmacy.objects.filter(pk=unlinked.id).exists())
 
+    def test_organization_staff_creates_contracted_pharmacy_without_organization(self):
+        staff_user = User.objects.create_user(
+            email="phasec.orgstaff.create@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=staff_user,
+            organization=self.organization,
+            can_manage_pharmacists=True,
+        )
+        self.client.force_authenticate(staff_user)
+
+        response = self.client.post(
+            reverse("admin-pharmacy-list"),
+            {
+                "name": "Org Staff Contracted Pharmacy",
+                "phone_number": "0999999999",
+                "address": "Damascus",
+                "latitude": "33.500000",
+                "longitude": "36.300000",
+                "is_contracted_with_organization": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Pharmacy.objects.get(name="Org Staff Contracted Pharmacy")
+        self.assertEqual(created.organization, self.organization)
+        self.assertTrue(created.is_contracted_with_organization)
+        self.assertEqual(response.data["organization"]["id"], self.organization.id)
+
+    def test_organization_staff_updates_unassigned_pharmacy_to_contracted(self):
+        staff_user = User.objects.create_user(
+            email="phasec.orgstaff.patch@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=staff_user,
+            organization=self.organization,
+            can_manage_pharmacists=True,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Unassigned Patch Pharmacy",
+            address="Damascus",
+            is_contracted_with_organization=False,
+        )
+        self.client.force_authenticate(staff_user)
+
+        response = self.client.patch(
+            reverse("admin-pharmacy-detail", kwargs={"pk": pharmacy.id}),
+            {"is_contracted_with_organization": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        pharmacy.refresh_from_db()
+        self.assertTrue(pharmacy.is_contracted_with_organization)
+        self.assertEqual(pharmacy.organization, self.organization)
+        self.assertEqual(response.data["organization"]["id"], self.organization.id)
+
+    def test_organization_staff_cannot_assign_another_organization(self):
+        other_organization = Organization.objects.create(name="Other Phase C Org")
+        staff_user = User.objects.create_user(
+            email="phasec.orgstaff.scope@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=staff_user,
+            organization=self.organization,
+            can_manage_pharmacists=True,
+        )
+        self.client.force_authenticate(staff_user)
+
+        create_response = self.client.post(
+            reverse("admin-pharmacy-list"),
+            {
+                "name": "Wrong Org Create Pharmacy",
+                "address": "Damascus",
+                "is_contracted_with_organization": True,
+                "organization": other_organization.id,
+            },
+            format="json",
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Wrong Org Patch Pharmacy",
+            address="Damascus",
+            is_contracted_with_organization=False,
+        )
+        patch_response = self.client.patch(
+            reverse("admin-pharmacy-detail", kwargs={"pk": pharmacy.id}),
+            {
+                "is_contracted_with_organization": True,
+                "organization": other_organization.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(create_response.data["code"], "organization_scope_mismatch")
+        self.assertFalse(
+            Pharmacy.objects.filter(name="Wrong Org Create Pharmacy").exists()
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(patch_response.data["code"], "organization_scope_mismatch")
+        pharmacy.refresh_from_db()
+        self.assertIsNone(pharmacy.organization)
+        self.assertFalse(pharmacy.is_contracted_with_organization)
+
+    def test_superuser_without_organization_cannot_create_contracted_without_org(self):
+        superuser = User.objects.create_superuser(
+            email="phasec.superuser@example.com",
+            password="StrongPass123!",
+        )
+        self.client.force_authenticate(superuser)
+
+        response = self.client.post(
+            reverse("admin-pharmacy-list"),
+            {
+                "name": "Superuser Missing Org Pharmacy",
+                "address": "Damascus",
+                "is_contracted_with_organization": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "admin_organization_required")
+        self.assertFalse(
+            Pharmacy.objects.filter(name="Superuser Missing Org Pharmacy").exists()
+        )
+
+    def test_non_contracted_pharmacy_can_be_created_without_organization(self):
+        staff_user = User.objects.create_user(
+            email="phasec.orgstaff.noncontracted@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=staff_user,
+            organization=self.organization,
+            can_manage_pharmacists=True,
+        )
+        self.client.force_authenticate(staff_user)
+
+        response = self.client.post(
+            reverse("admin-pharmacy-list"),
+            {
+                "name": "Org Staff Non Contracted Pharmacy",
+                "address": "Damascus",
+                "is_contracted_with_organization": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Pharmacy.objects.get(name="Org Staff Non Contracted Pharmacy")
+        self.assertIsNone(created.organization)
+        self.assertFalse(created.is_contracted_with_organization)
+        self.assertIsNone(response.data["organization"])
+
+    def test_organization_staff_list_is_scoped_to_own_organization(self):
+        other_organization = Organization.objects.create(name="Other List Org")
+        own_pharmacy = Pharmacy.objects.create(
+            name="Own Scoped Pharmacy",
+            address="Damascus",
+            organization=self.organization,
+            is_contracted_with_organization=True,
+        )
+        other_pharmacy = Pharmacy.objects.create(
+            name="Other Scoped Pharmacy",
+            address="Aleppo",
+            organization=other_organization,
+            is_contracted_with_organization=True,
+        )
+        Pharmacy.objects.create(
+            name="Unassigned Scoped Pharmacy",
+            address="Homs",
+        )
+        staff_user = User.objects.create_user(
+            email="phasec.orgstaff.list@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=staff_user,
+            organization=self.organization,
+            can_manage_pharmacists=True,
+        )
+        self.client.force_authenticate(staff_user)
+
+        response = self.client.get(reverse("admin-pharmacy-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        pharmacy_ids = {row["id"] for row in response.data["results"]}
+        self.assertIn(own_pharmacy.id, pharmacy_ids)
+        self.assertIn(self.pharmacy.id, pharmacy_ids)
+        self.assertNotIn(other_pharmacy.id, pharmacy_ids)
+        self.assertFalse(
+            any(
+                row["name"] == "Unassigned Scoped Pharmacy"
+                for row in response.data["results"]
+            )
+        )
+
     def test_admin_can_list_pharmacists(self):
         self.client.force_authenticate(self.admin_user)
 
@@ -448,4 +660,6 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.pharmacist_user.refresh_from_db()
         self.assertFalse(self.pharmacist_user.is_active)
         self.assertFalse(self.pharmacist.is_approved)
-        self.assertTrue(PharmacistProfile.objects.filter(pk=self.pharmacist.id).exists())
+        self.assertTrue(
+            PharmacistProfile.objects.filter(pk=self.pharmacist.id).exists()
+        )

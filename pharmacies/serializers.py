@@ -119,6 +119,11 @@ class AdminPharmacySerializer(serializers.ModelSerializer):
 
 
 class AdminPharmacyWriteSerializer(serializers.ModelSerializer):
+    ADMIN_ORGANIZATION_REQUIRED_DETAIL = (
+        "Contracted pharmacies require an organization-linked admin account or an "
+        "explicit organization."
+    )
+
     class Meta:
         model = Pharmacy
         fields = (
@@ -138,6 +143,7 @@ class AdminPharmacyWriteSerializer(serializers.ModelSerializer):
             "organization",
             None,
         )
+        submitted_organization = attrs.get("organization")
         organization = attrs.get(
             "organization",
             getattr(self.instance, "organization", None),
@@ -147,25 +153,47 @@ class AdminPharmacyWriteSerializer(serializers.ModelSerializer):
             getattr(self.instance, "is_contracted_with_organization", False),
         )
 
-        if staff_organization is not None and not request.user.is_superuser:
-            if organization is None:
-                attrs["organization"] = staff_organization
-                organization = staff_organization
-            elif organization != staff_organization:
+        if staff_organization is not None:
+            if (
+                submitted_organization is not None
+                and submitted_organization != staff_organization
+            ):
                 raise serializers.ValidationError(
                     {
-                        "organization": (
-                            "You can only manage pharmacies within your organization."
-                        )
+                        "detail": "You can only manage pharmacies within your organization.",
+                        "code": "organization_scope_mismatch",
+                        "fields": {
+                            "organization": (
+                                "Organization staff cannot assign pharmacies to a "
+                                "different organization."
+                            )
+                        },
                     }
                 )
+            if organization is not None and organization != staff_organization:
+                raise serializers.ValidationError(
+                    {
+                        "detail": "You can only manage pharmacies within your organization.",
+                        "code": "organization_scope_mismatch",
+                        "fields": {
+                            "organization": (
+                                "This pharmacy belongs to a different organization."
+                            )
+                        },
+                    }
+                )
+            if is_contracted:
+                attrs["organization"] = staff_organization
+                organization = staff_organization
 
         if is_contracted and organization is None:
             raise serializers.ValidationError(
                 {
-                    "organization": (
-                        "Contracted pharmacies must be linked to an organization."
-                    )
+                    "detail": self.ADMIN_ORGANIZATION_REQUIRED_DETAIL,
+                    "code": "admin_organization_required",
+                    "fields": {
+                        "organization": self.ADMIN_ORGANIZATION_REQUIRED_DETAIL,
+                    },
                 }
             )
         return attrs
@@ -335,7 +363,9 @@ class AdminPharmacistWriteSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         pharmacist = self.instance
-        queryset = User.objects.filter(email__iexact=value) if value else User.objects.none()
+        queryset = (
+            User.objects.filter(email__iexact=value) if value else User.objects.none()
+        )
         if pharmacist is not None:
             queryset = queryset.exclude(pk=pharmacist.user_id)
         if queryset.exists():
@@ -344,7 +374,9 @@ class AdminPharmacistWriteSerializer(serializers.Serializer):
 
     def validate_phone_number(self, value):
         pharmacist = self.instance
-        queryset = User.objects.filter(phone_number=value) if value else User.objects.none()
+        queryset = (
+            User.objects.filter(phone_number=value) if value else User.objects.none()
+        )
         if pharmacist is not None:
             queryset = queryset.exclude(pk=pharmacist.user_id)
         if queryset.exists():
@@ -411,11 +443,7 @@ class AdminPharmacistWriteSerializer(serializers.Serializer):
             approval_status = values.get("approval_status")
             if approval_status and approval_status not in ApprovalStatusChoices.values:
                 raise serializers.ValidationError(
-                    {
-                        status_container: {
-                            "approval_status": "Invalid approval status."
-                        }
-                    }
+                    {status_container: {"approval_status": "Invalid approval status."}}
                 )
         return attrs
 
@@ -444,7 +472,9 @@ class AdminPharmacistWriteSerializer(serializers.Serializer):
             password=password,
             phone_number=validated_data.get("phone_number", ""),
             role=RoleChoices.PHARMACIST,
-            is_active=bool(user_data.get("is_active", account_status.get("is_active", True))),
+            is_active=bool(
+                user_data.get("is_active", account_status.get("is_active", True))
+            ),
             is_verified=approval_status == ApprovalStatusChoices.APPROVED,
             approval_status=approval_status,
         )

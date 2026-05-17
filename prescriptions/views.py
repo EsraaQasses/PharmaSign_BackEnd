@@ -1014,13 +1014,14 @@ class PatientSignQualityReportViewSet(viewsets.ViewSet):
                     "code": "sign_quality_report_exists",
                     "report": self._report_response(existing_report),
                 },
-                status=status.HTTP_200_OK,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         approved_instruction_text = (
-            item.instructions_transcript_edited.strip()
+            item.instructions_text.strip()
+            or item.instructions_transcript_edited.strip()
             or item.instructions_transcript_raw.strip()
-            or item.instructions_text.strip()
+            or item.supporting_text.strip()
         )
         try:
             report = SignQualityReport.objects.create(
@@ -1045,7 +1046,7 @@ class PatientSignQualityReportViewSet(viewsets.ViewSet):
                     "code": "sign_quality_report_exists",
                     "report": self._report_response(report),
                 },
-                status=status.HTTP_200_OK,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(
@@ -1174,6 +1175,8 @@ class AdminSignQualityReportViewSet(
         report_type = self.request.query_params.get("report_type")
         patient_id = self.request.query_params.get("patient_id")
         prescription_id = self.request.query_params.get("prescription_id")
+        prescription_item_id = self.request.query_params.get("prescription_item_id")
+        search = self.request.query_params.get("search")
         if report_status:
             queryset = queryset.filter(status=report_status)
         if report_type:
@@ -1182,4 +1185,14 @@ class AdminSignQualityReportViewSet(
             queryset = queryset.filter(patient_id=patient_id)
         if prescription_id:
             queryset = queryset.filter(prescription_id=prescription_id)
+        if prescription_item_id:
+            queryset = queryset.filter(prescription_item_id=prescription_item_id)
+        if search:
+            queryset = queryset.filter(
+                Q(patient__full_name__icontains=search)
+                | Q(patient__phone_number__icontains=search)
+                | Q(patient__user__phone_number__icontains=search)
+                | Q(medicine_name__icontains=search)
+                | Q(prescription_item__medicine_name__icontains=search)
+            )
         return queryset

@@ -214,6 +214,7 @@ class SignQualityReportTests(APITestCase):
             pharmacist=self.pharmacist,
             pharmacy=self.pharmacy,
             doctor_name="Quality Doctor",
+            doctor_specialty="Quality Specialty",
             status=PrescriptionStatusChoices.SUBMITTED,
         )
         self.item = PrescriptionItem.objects.create(
@@ -224,6 +225,12 @@ class SignQualityReportTests(APITestCase):
             instructions_transcript_edited="Approved instruction snapshot",
             supporting_text="Generated gloss",
             sign_status=SignStatusChoices.COMPLETED,
+        )
+        self.other_item = PrescriptionItem.objects.create(
+            prescription=self.prescription,
+            medicine_name="Other Snapshot Med",
+            instructions_text="Other instruction",
+            sign_status=SignStatusChoices.PENDING,
         )
 
     def report_url(self, item=None):
@@ -246,6 +253,7 @@ class SignQualityReportTests(APITestCase):
         self.assertEqual(report.patient, self.patient)
         self.assertEqual(report.prescription, self.prescription)
         self.assertEqual(report.prescription_item, self.item)
+        self.assertNotEqual(report.prescription_item, self.other_item)
         self.assertEqual(response.data["report"]["report_type"], "sign_unclear")
         self.assertEqual(response.data["report"]["status"], "open")
 
@@ -310,7 +318,7 @@ class SignQualityReportTests(APITestCase):
         )
 
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(duplicate_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(duplicate_response.data["code"], "sign_quality_report_exists")
         self.assertEqual(SignQualityReport.objects.count(), 1)
         self.assertEqual(
@@ -346,7 +354,7 @@ class SignQualityReportTests(APITestCase):
         self.assertEqual(report.medicine_name, "Snapshot Med")
         self.assertEqual(
             report.approved_instruction_text,
-            "Approved instruction snapshot",
+            "Instruction fallback",
         )
         self.prescription.refresh_from_db()
         self.item.refresh_from_db()
@@ -354,8 +362,15 @@ class SignQualityReportTests(APITestCase):
         self.assertEqual(self.item.sign_status, original_sign_status)
 
     def test_report_snapshot_falls_back_to_raw_transcript(self):
+        self.item.instructions_text = ""
         self.item.instructions_transcript_edited = ""
-        self.item.save(update_fields=["instructions_transcript_edited", "updated_at"])
+        self.item.save(
+            update_fields=[
+                "instructions_text",
+                "instructions_transcript_edited",
+                "updated_at",
+            ]
+        )
         self.client.force_authenticate(self.patient_user)
 
         response = self.client.post(
@@ -398,7 +413,93 @@ class SignQualityReportTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["results"][0]["id"], report.id)
         self.assertEqual(response.data["results"][0]["patient"]["id"], self.patient.id)
+        self.assertEqual(
+            response.data["results"][0]["patient"]["full_name"],
+            self.patient.full_name,
+        )
+        self.assertEqual(
+            response.data["results"][0]["patient"]["phone_number"],
+            self.patient.phone_number,
+        )
+        self.assertEqual(
+            response.data["results"][0]["doctor_name"],
+            self.prescription.doctor_name,
+        )
+        self.assertEqual(
+            response.data["results"][0]["doctor_specialty"],
+            self.prescription.doctor_specialty,
+        )
+        self.assertEqual(
+            response.data["results"][0]["prescription"]["id"],
+            self.prescription.id,
+        )
+        self.assertEqual(
+            response.data["results"][0]["prescription_item"]["id"],
+            self.item.id,
+        )
+        self.assertEqual(
+            response.data["results"][0]["prescription_item"]["medicine_name"],
+            self.item.medicine_name,
+        )
+        self.assertNotEqual(
+            response.data["results"][0]["prescription_item"]["id"],
+            self.other_item.id,
+        )
+        self.assertNotIn("items", response.data["results"][0]["prescription"])
         self.assertEqual(response.data["results"][0]["medicine_name"], "Snapshot Med")
+
+    def test_admin_can_filter_reports_by_search_and_prescription_item_id(self):
+        report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            approved_instruction_text=self.item.instructions_text,
+            report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        )
+        other_report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.other_item,
+            medicine_name=self.other_item.medicine_name,
+            approved_instruction_text=self.other_item.instructions_text,
+            report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+            status=SignQualityReport.STATUS_REVIEWED,
+        )
+        admin_user = User.objects.create_user(
+            email="quality.admin.filter@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=self.organization,
+            can_manage_patients=True,
+            can_manage_pharmacists=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        by_item = self.client.get(
+            reverse("admin-sign-quality-report-list"),
+            {"prescription_item_id": self.item.id},
+        )
+        by_search = self.client.get(
+            reverse("admin-sign-quality-report-list"),
+            {"search": "Snapshot Med"},
+        )
+        by_status = self.client.get(
+            reverse("admin-sign-quality-report-list"),
+            {"status": SignQualityReport.STATUS_REVIEWED},
+        )
+
+        self.assertEqual(by_item.status_code, status.HTTP_200_OK)
+        self.assertEqual(by_item.data["count"], 1)
+        self.assertEqual(by_item.data["results"][0]["id"], report.id)
+        self.assertEqual(by_search.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(by_search.data["count"], 1)
+        self.assertEqual(by_status.status_code, status.HTTP_200_OK)
+        self.assertEqual(by_status.data["results"][0]["id"], other_report.id)
 
     def test_admin_can_update_report_status(self):
         report = SignQualityReport.objects.create(
@@ -423,15 +524,40 @@ class SignQualityReportTests(APITestCase):
         )
         self.client.force_authenticate(admin_user)
 
-        response = self.client.patch(
-            reverse("admin-sign-quality-report-detail", kwargs={"pk": report.id}),
-            {"status": SignQualityReport.STATUS_REVIEWED},
-            format="json",
-        )
+        for target_status in (
+            SignQualityReport.STATUS_REVIEWED,
+            SignQualityReport.STATUS_RESOLVED,
+            SignQualityReport.STATUS_DISMISSED,
+        ):
+            response = self.client.patch(
+                reverse("admin-sign-quality-report-detail", kwargs={"pk": report.id}),
+                {
+                    "status": target_status,
+                    "patient": self.other_patient.id,
+                    "prescription": 999999,
+                    "prescription_item": self.other_item.id,
+                    "medicine_name": "Changed",
+                    "approved_instruction_text": "Changed",
+                    "report_type": "changed",
+                },
+                format="json",
+            )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        report.refresh_from_db()
-        self.assertEqual(report.status, SignQualityReport.STATUS_REVIEWED)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            report.refresh_from_db()
+            self.assertEqual(report.status, target_status)
+        self.assertEqual(report.patient, self.patient)
+        self.assertEqual(report.prescription, self.prescription)
+        self.assertEqual(report.prescription_item, self.item)
+        self.assertEqual(report.medicine_name, self.item.medicine_name)
+        self.assertEqual(
+            report.approved_instruction_text,
+            self.item.instructions_transcript_edited,
+        )
+        self.assertEqual(
+            report.report_type,
+            SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        )
 
     def test_non_admin_cannot_list_reports(self):
         self.client.force_authenticate(self.patient_user)
@@ -642,7 +768,9 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
         self.client.force_authenticate(self.admin_user)
 
         response = self.client.get(
-            reverse("admin-prescription-log-detail", kwargs={"pk": self.prescription.id})
+            reverse(
+                "admin-prescription-log-detail", kwargs={"pk": self.prescription.id}
+            )
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -657,7 +785,9 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
         self.client.force_authenticate(self.admin_user)
 
         response = self.client.get(
-            reverse("admin-prescription-log-detail", kwargs={"pk": self.prescription.id})
+            reverse(
+                "admin-prescription-log-detail", kwargs={"pk": self.prescription.id}
+            )
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2370,7 +2500,6 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["gloss_text"], "جرعة 1 صباح")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
-
 
     @override_settings(GEMINI_API_KEY="")
     def test_generate_sign_provider_not_configured_response(self):
