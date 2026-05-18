@@ -1085,6 +1085,7 @@ class AdminPrescriptionLogViewSet(
             )
             .prefetch_related(
                 "items",
+                "sign_quality_reports",
                 "access_logs",
                 "access_logs__accessed_by",
             )
@@ -1108,8 +1109,6 @@ class AdminPrescriptionLogViewSet(
                 | Q(patient__user__phone_number__icontains=search)
                 | Q(pharmacy__name__icontains=search)
                 | Q(pharmacist__full_name__icontains=search)
-                | Q(doctor_name__icontains=search)
-                | Q(diagnosis__icontains=search)
             )
             if str(search).isdigit():
                 search_filter |= Q(id=int(search))
@@ -1139,7 +1138,11 @@ class AdminPrescriptionLogViewSet(
         if date_to:
             queryset = queryset.filter(log_date__date__lte=date_to)
 
-        return queryset
+        quality_report_status = self.request.query_params.get("quality_report_status")
+        if quality_report_status:
+            queryset = queryset.filter(sign_quality_reports__status=quality_report_status)
+
+        return queryset.distinct()
 
 
 class AdminSignQualityReportViewSet(

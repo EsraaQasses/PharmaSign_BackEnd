@@ -17,6 +17,8 @@ class Pharmacy(TimeStampedModel):
         blank=True,
     )
     address = models.CharField(max_length=255)
+    city = models.CharField(max_length=100, blank=True, default="")
+    region = models.CharField(max_length=100, blank=True, default="")
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     is_contracted_with_organization = models.BooleanField(default=False)

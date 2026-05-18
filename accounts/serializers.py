@@ -379,8 +379,14 @@ class AdminApprovalRequestSerializer(serializers.Serializer):
                 "birth_date": patient_profile.birth_date,
                 "gender": patient_profile.gender,
                 "address": patient_profile.address,
+                "city": patient_profile.city,
+                "region": patient_profile.region,
                 "hearing_disability_level": (
                     patient_profile.hearing_disability_level
+                ),
+                "hearing_condition_type": patient_profile.hearing_condition_type,
+                "hearing_condition_type_display": (
+                    patient_profile.get_hearing_condition_type_display()
                 ),
             }
         if user.role == RoleChoices.PHARMACIST:
@@ -397,8 +403,8 @@ class AdminApprovalRequestSerializer(serializers.Serializer):
                     "id": pharmacy.id,
                     "name": pharmacy.name,
                     "address": pharmacy.address,
-                    "city": None,
-                    "region": None,
+                    "city": pharmacy.city,
+                    "region": pharmacy.region,
                 },
             }
         return None
@@ -488,8 +494,15 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
         allow_blank=True,
     )
     address = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    region = serializers.CharField(required=False, allow_blank=True, max_length=100)
     hearing_disability_level = serializers.ChoiceField(
         choices=PatientProfile._meta.get_field("hearing_disability_level").choices,
+        required=False,
+        allow_blank=True,
+    )
+    hearing_condition_type = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_condition_type").choices,
         required=False,
         allow_blank=True,
     )
@@ -570,7 +583,10 @@ class PatientSelfRegisterSerializer(serializers.Serializer):
             birth_date=validated_data.get("birth_date"),
             gender=validated_data.get("gender", ""),
             address=validated_data.get("address", ""),
+            city=validated_data.get("city", ""),
+            region=validated_data.get("region", ""),
             hearing_disability_level=validated_data.get("hearing_disability_level", ""),
+            hearing_condition_type=validated_data.get("hearing_condition_type", ""),
             is_self_registered=True,
         )
         if validated_data.get("record_access_pin"):

@@ -286,6 +286,35 @@ class PatientSessionFlowTests(APITestCase):
         self.assertTrue(get_response.data["dark_mode"])
         self.assertTrue(get_response.data["use_biometrics"])
 
+    def test_patient_me_can_update_location_and_hearing_condition_type(self):
+        patient_user = User.objects.create_user(
+            email="patient.location.condition@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Location Condition Patient",
+        )
+        self.client.force_authenticate(patient_user)
+
+        response = self.client.patch(
+            reverse("patient-me"),
+            {
+                "city": "Damascus",
+                "region": "Mazza",
+                "hearing_condition_type": "deaf_from_birth",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        patient.refresh_from_db()
+        self.assertEqual(patient.city, "Damascus")
+        self.assertEqual(patient.region, "Mazza")
+        self.assertEqual(patient.hearing_condition_type, "deaf_from_birth")
+        self.assertEqual(response.data["hearing_condition_type_display"], "أصم منذ الولادة")
+
     def test_admin_can_create_patient_account_without_email(self):
         admin_user = User.objects.create_user(
             email="admin.create.patient@example.com",
@@ -302,6 +331,10 @@ class PatientSessionFlowTests(APITestCase):
                 "phone_number": "5555000",
                 "date_of_birth": "1999-01-01",
                 "gender": GenderChoices.FEMALE,
+                "city": "Damascus",
+                "region": "Mazza",
+                "hearing_disability_level": HearingDisabilityLevelChoices.SEVERE,
+                "hearing_condition_type": "deaf_from_birth",
                 "blood_type": "A_POS",
                 "allergies": "Penicillin",
                 "chronic_conditions": "Asthma",
@@ -313,6 +346,11 @@ class PatientSessionFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(response.data["user"]["email"])
         self.assertEqual(response.data["user"]["phone_number"], "5555000")
+        created_patient = PatientProfile.objects.get(user__phone_number="5555000")
+        self.assertEqual(created_patient.city, "Damascus")
+        self.assertEqual(created_patient.region, "Mazza")
+        self.assertEqual(created_patient.hearing_disability_level, "severe")
+        self.assertEqual(created_patient.hearing_condition_type, "deaf_from_birth")
         self.assertTrue(response.data["temporary_password_generated"])
         self.assertIn("temporary_password", response.data)
         self.assertFalse(
@@ -1043,7 +1081,10 @@ class AdminPatientPhaseBApiTests(APITestCase):
             birth_date=date(2000, 1, 1),
             gender=GenderChoices.FEMALE,
             address="Known Address",
+            city="Damascus",
+            region="Mazza",
             hearing_disability_level=HearingDisabilityLevelChoices.MODERATE,
+            hearing_condition_type="hard_of_hearing",
             qr_code_value="phase-b-qr",
             qr_is_active=True,
         )
@@ -1075,8 +1116,10 @@ class AdminPatientPhaseBApiTests(APITestCase):
         self.assertEqual(response.data["count"], 1)
         patient = response.data["results"][0]
         self.assertEqual(patient["id"], self.patient.id)
-        self.assertIsNone(patient["city"])
-        self.assertIsNone(patient["region"])
+        self.assertEqual(patient["city"], "Damascus")
+        self.assertEqual(patient["region"], "Mazza")
+        self.assertEqual(patient["hearing_condition_type"], "hard_of_hearing")
+        self.assertEqual(patient["hearing_condition_type_display"], "ضعيف سمع")
         self.assertTrue(patient["qr"]["active_login_qr_exists"])
         self.assertNotIn("token_hash", str(response.data))
 
@@ -1097,8 +1140,10 @@ class AdminPatientPhaseBApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["full_name"], "Phase B Patient")
         self.assertEqual(response.data["medical_info"]["allergies"], "Penicillin")
-        self.assertIsNone(response.data["city"])
-        self.assertIsNone(response.data["region"])
+        self.assertEqual(response.data["city"], "Damascus")
+        self.assertEqual(response.data["region"], "Mazza")
+        self.assertEqual(response.data["hearing_condition_type"], "hard_of_hearing")
+        self.assertEqual(response.data["hearing_condition_type_display"], "ضعيف سمع")
         self.assertIsNone(response.data["diagnosis"])
 
     def test_admin_can_patch_safe_patient_fields(self):
@@ -1112,7 +1157,10 @@ class AdminPatientPhaseBApiTests(APITestCase):
                 "birth_date": "1999-02-03",
                 "gender": GenderChoices.MALE,
                 "address": "Updated Address",
+                "city": "Aleppo",
+                "region": "Aziziyeh",
                 "hearing_disability_level": HearingDisabilityLevelChoices.SEVERE,
+                "hearing_condition_type": "deaf_due_to_accident",
                 "medical_info": {
                     "blood_type": "B_POS",
                     "chronic_conditions": "Diabetes",
@@ -1135,8 +1183,61 @@ class AdminPatientPhaseBApiTests(APITestCase):
         self.assertEqual(self.patient.full_name, "Updated Patient")
         self.assertEqual(self.patient.phone_number, "7001999")
         self.assertEqual(self.patient_user.phone_number, "7001999")
+        self.assertEqual(self.patient.city, "Aleppo")
+        self.assertEqual(self.patient.region, "Aziziyeh")
+        self.assertEqual(self.patient.hearing_condition_type, "deaf_due_to_accident")
         self.assertEqual(self.patient.medical_info.blood_type, "B_POS")
         self.assertEqual(response.data["account_status"]["approval_status"], "approved")
+
+    def test_patient_profile_accepts_each_hearing_condition_type(self):
+        for value in (
+            "hard_of_hearing",
+            "deaf_from_birth",
+            "deaf_due_to_accident",
+        ):
+            with self.subTest(value=value):
+                self.patient.hearing_condition_type = value
+                self.patient.full_clean()
+                self.patient.save(update_fields=["hearing_condition_type", "updated_at"])
+                self.patient.refresh_from_db()
+                self.assertEqual(self.patient.hearing_condition_type, value)
+
+    def test_admin_patch_rejects_invalid_hearing_condition_type(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.patch(
+            reverse("admin-patient-detail", kwargs={"pk": self.patient.id}),
+            {"hearing_condition_type": "invalid"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("hearing_condition_type", response.data)
+
+    def test_existing_patient_without_location_or_condition_serializes(self):
+        patient_user = User.objects.create_user(
+            email="phaseb.empty@example.com",
+            password="StrongPass123!",
+            phone_number="7001002",
+            role=RoleChoices.PATIENT,
+        )
+        empty_patient = PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Empty Patient",
+            phone_number="7001002",
+        )
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-patient-detail", kwargs={"pk": empty_patient.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["city"], "")
+        self.assertEqual(response.data["region"], "")
+        self.assertEqual(response.data["hearing_condition_type"], "")
+        self.assertEqual(response.data["hearing_condition_type_display"], "")
+        self.assertIn("hearing_disability_level", response.data)
 
     def test_admin_delete_deactivates_user_and_qr_without_hard_delete(self):
         self.client.force_authenticate(self.admin_user)

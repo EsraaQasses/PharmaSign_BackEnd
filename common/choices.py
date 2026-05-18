@@ -26,6 +26,12 @@ class HearingDisabilityLevelChoices(models.TextChoices):
     PROFOUND = "profound", "Profound"
 
 
+class HearingConditionTypeChoices(models.TextChoices):
+    HARD_OF_HEARING = "hard_of_hearing", "ضعيف سمع"
+    DEAF_FROM_BIRTH = "deaf_from_birth", "أصم منذ الولادة"
+    DEAF_DUE_TO_ACCIDENT = "deaf_due_to_accident", "أصم بسبب حادث"
+
+
 class BloodTypeChoices(models.TextChoices):
     A_POS = "A_POS", "A+"
     A_NEG = "A_NEG", "A-"

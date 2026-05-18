@@ -27,6 +27,8 @@ class PharmacySerializer(serializers.ModelSerializer):
             "name",
             "owner_user",
             "address",
+            "city",
+            "region",
             "latitude",
             "longitude",
             "is_contracted_with_organization",
@@ -59,8 +61,6 @@ class PharmacySerializer(serializers.ModelSerializer):
 
 
 class AdminPharmacySerializer(serializers.ModelSerializer):
-    city = serializers.SerializerMethodField()
-    region = serializers.SerializerMethodField()
     license_number = serializers.SerializerMethodField()
     pharmacists_count = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
@@ -88,12 +88,6 @@ class AdminPharmacySerializer(serializers.ModelSerializer):
             "organization",
         )
         read_only_fields = fields
-
-    def get_city(self, obj):
-        return None
-
-    def get_region(self, obj):
-        return None
 
     def get_license_number(self, obj):
         return None
@@ -130,6 +124,8 @@ class AdminPharmacyWriteSerializer(serializers.ModelSerializer):
             "name",
             "phone_number",
             "address",
+            "city",
+            "region",
             "latitude",
             "longitude",
             "is_contracted_with_organization",
@@ -203,6 +199,8 @@ class PharmacyCompatSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=255, required=False)
     address = serializers.CharField(max_length=255, required=False)
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    region = serializers.CharField(max_length=100, required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
     lat = serializers.DecimalField(
         max_digits=9,
@@ -223,6 +221,8 @@ class PharmacyCompatSerializer(serializers.Serializer):
             "id": instance.id,
             "name": instance.name,
             "address": instance.address,
+            "city": instance.city,
+            "region": instance.region,
             "phone": instance.phone_number,
             "lat": instance.latitude,
             "lng": instance.longitude,
@@ -233,6 +233,8 @@ class PharmacyCompatSerializer(serializers.Serializer):
         field_map = {
             "name": "name",
             "address": "address",
+            "city": "city",
+            "region": "region",
             "phone": "phone_number",
             "lat": "latitude",
             "lng": "longitude",
@@ -249,8 +251,6 @@ class PharmacyCompatSerializer(serializers.Serializer):
 
 
 class SafePharmacySerializer(serializers.ModelSerializer):
-    city = serializers.SerializerMethodField()
-    region = serializers.SerializerMethodField()
     latitude = serializers.FloatField(read_only=True)
     longitude = serializers.FloatField(read_only=True)
 
@@ -268,12 +268,6 @@ class SafePharmacySerializer(serializers.ModelSerializer):
             "is_contracted_with_organization",
         )
         read_only_fields = fields
-
-    def get_city(self, obj):
-        return ""
-
-    def get_region(self, obj):
-        return ""
 
 
 class PharmacistProfileSerializer(serializers.ModelSerializer):

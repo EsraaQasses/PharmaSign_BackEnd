@@ -407,40 +407,24 @@ class PrescriptionSerializer(serializers.ModelSerializer):
 
 class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
     patient = serializers.SerializerMethodField()
-    patient_name = serializers.CharField(source="patient.full_name", read_only=True)
     pharmacy = serializers.SerializerMethodField()
-    pharmacy_name = serializers.CharField(source="pharmacy.name", read_only=True)
     pharmacist = serializers.SerializerMethodField()
-    pharmacist_name = serializers.CharField(
-        source="pharmacist.full_name", read_only=True
-    )
-    date = serializers.SerializerMethodField()
+    operation_id = serializers.IntegerField(source="id", read_only=True)
+    sent_date = serializers.SerializerMethodField()
     medicines_count = serializers.SerializerMethodField()
+    linked_quality_report_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Prescription
         fields = (
             "id",
+            "operation_id",
             "patient",
-            "patient_name",
-            "pharmacy",
-            "pharmacy_name",
             "pharmacist",
-            "pharmacist_name",
-            "doctor_name",
-            "doctor_specialty",
-            "diagnosis",
-            "date",
-            "prescribed_at",
-            "submitted_at",
-            "delivered_at",
+            "pharmacy",
+            "sent_date",
             "medicines_count",
-            "status",
-            "notes",
-            "total_price",
-            "currency",
-            "created_at",
-            "updated_at",
+            "linked_quality_report_status",
         )
         read_only_fields = fields
 
@@ -448,9 +432,6 @@ class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
         return {
             "id": obj.patient_id,
             "full_name": obj.patient.full_name,
-            "phone_number": obj.patient.phone_number
-            or obj.patient.user.phone_number
-            or "",
         }
 
     def get_pharmacy(self, obj):
@@ -465,13 +446,17 @@ class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
             "full_name": obj.pharmacist.full_name,
         }
 
-    def get_date(self, obj):
+    def get_sent_date(self, obj):
         return obj.submitted_at or obj.prescribed_at or obj.created_at
 
     def get_medicines_count(self, obj):
         if hasattr(obj, "medicines_count"):
             return obj.medicines_count
         return obj.items.count()
+
+    def get_linked_quality_report_status(self, obj):
+        report = next(iter(obj.sign_quality_reports.all()), None)
+        return report.status if report else None
 
 
 class AdminPrescriptionLogItemSerializer(serializers.ModelSerializer):

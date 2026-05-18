@@ -48,6 +48,10 @@ class PatientMedicalInfoSerializer(serializers.ModelSerializer):
 class PatientProfileSerializer(serializers.ModelSerializer):
     medical_info = PatientMedicalInfoSerializer(read_only=True)
     enrollment_id = serializers.SerializerMethodField()
+    hearing_condition_type_display = serializers.CharField(
+        source="get_hearing_condition_type_display",
+        read_only=True,
+    )
 
     class Meta:
         model = PatientProfile
@@ -61,7 +65,11 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "birth_date",
             "gender",
             "address",
+            "city",
+            "region",
             "hearing_disability_level",
+            "hearing_condition_type",
+            "hearing_condition_type_display",
             "is_self_registered",
             "qr_code_value",
             "qr_is_active",
@@ -101,8 +109,10 @@ class AdminPatientSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source="user.id", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     age = serializers.SerializerMethodField()
-    city = serializers.SerializerMethodField()
-    region = serializers.SerializerMethodField()
+    hearing_condition_type_display = serializers.CharField(
+        source="get_hearing_condition_type_display",
+        read_only=True,
+    )
     diagnosis = serializers.SerializerMethodField()
     medical_info = serializers.SerializerMethodField()
     account_status = serializers.SerializerMethodField()
@@ -123,6 +133,8 @@ class AdminPatientSerializer(serializers.ModelSerializer):
             "city",
             "region",
             "hearing_disability_level",
+            "hearing_condition_type",
+            "hearing_condition_type_display",
             "diagnosis",
             "medical_info",
             "account_status",
@@ -141,12 +153,6 @@ class AdminPatientSerializer(serializers.ModelSerializer):
             - obj.birth_date.year
             - ((today.month, today.day) < (obj.birth_date.month, obj.birth_date.day))
         )
-
-    def get_city(self, obj):
-        return None
-
-    def get_region(self, obj):
-        return None
 
     def get_diagnosis(self, obj):
         return None
@@ -184,8 +190,15 @@ class AdminPatientUpdateSerializer(serializers.Serializer):
         allow_blank=True,
     )
     address = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    region = serializers.CharField(max_length=100, required=False, allow_blank=True)
     hearing_disability_level = serializers.ChoiceField(
         choices=PatientProfile._meta.get_field("hearing_disability_level").choices,
+        required=False,
+        allow_blank=True,
+    )
+    hearing_condition_type = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_condition_type").choices,
         required=False,
         allow_blank=True,
     )
@@ -233,7 +246,10 @@ class AdminPatientUpdateSerializer(serializers.Serializer):
             "birth_date",
             "gender",
             "address",
+            "city",
+            "region",
             "hearing_disability_level",
+            "hearing_condition_type",
         ):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
@@ -307,8 +323,8 @@ class AdminPatientQRSerializer(serializers.ModelSerializer):
             "id": obj.id,
             "full_name": obj.full_name,
             "phone_number": obj.phone_number or obj.user.phone_number or "",
-            "city": None,
-            "region": None,
+            "city": obj.city,
+            "region": obj.region,
         }
 
     def get_status(self, obj):
@@ -339,6 +355,13 @@ class PatientSelfProfileSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
     )
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    region = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    hearing_condition_type = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_condition_type").choices,
+        required=False,
+        allow_blank=True,
+    )
 
     def to_representation(self, instance):
         medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=instance)
@@ -354,6 +377,10 @@ class PatientSelfProfileSerializer(serializers.Serializer):
             "is_pregnant": medical_info.is_pregnant,
             "date_of_birth": instance.birth_date,
             "gender": instance.gender,
+            "city": instance.city,
+            "region": instance.region,
+            "hearing_condition_type": instance.hearing_condition_type,
+            "hearing_condition_type_display": instance.get_hearing_condition_type_display(),
         }
 
     def update(self, instance, validated_data):
@@ -372,6 +399,15 @@ class PatientSelfProfileSerializer(serializers.Serializer):
         if "gender" in validated_data:
             instance.gender = validated_data["gender"]
             profile_fields.append("gender")
+        if "city" in validated_data:
+            instance.city = validated_data["city"]
+            profile_fields.append("city")
+        if "region" in validated_data:
+            instance.region = validated_data["region"]
+            profile_fields.append("region")
+        if "hearing_condition_type" in validated_data:
+            instance.hearing_condition_type = validated_data["hearing_condition_type"]
+            profile_fields.append("hearing_condition_type")
         if profile_fields:
             profile_fields.append("updated_at")
             instance.save(update_fields=profile_fields)
@@ -427,6 +463,18 @@ class AdminPatientCreateAccountSerializer(serializers.Serializer):
     date_of_birth = serializers.DateField(required=False, allow_null=True)
     gender = serializers.ChoiceField(
         choices=PatientProfile._meta.get_field("gender").choices,
+        required=False,
+        allow_blank=True,
+    )
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    region = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    hearing_disability_level = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_disability_level").choices,
+        required=False,
+        allow_blank=True,
+    )
+    hearing_condition_type = serializers.ChoiceField(
+        choices=PatientProfile._meta.get_field("hearing_condition_type").choices,
         required=False,
         allow_blank=True,
     )
@@ -491,6 +539,10 @@ class AdminPatientCreateAccountSerializer(serializers.Serializer):
             phone_number=validated_data["phone_number"],
             birth_date=validated_data.get("date_of_birth"),
             gender=validated_data.get("gender", ""),
+            city=validated_data.get("city", ""),
+            region=validated_data.get("region", ""),
+            hearing_disability_level=validated_data.get("hearing_disability_level", ""),
+            hearing_condition_type=validated_data.get("hearing_condition_type", ""),
             is_self_registered=False,
         )
         PatientMedicalInfo.objects.create(
@@ -617,6 +669,8 @@ def build_session_patient_payload(patient):
         "gender": patient.get_gender_display().lower() if patient.gender else "",
         "birth_date": patient.birth_date,
         "hearing_disability_level": patient.hearing_disability_level,
+        "hearing_condition_type": patient.hearing_condition_type,
+        "hearing_condition_type_display": patient.get_hearing_condition_type_display(),
     }
 
 

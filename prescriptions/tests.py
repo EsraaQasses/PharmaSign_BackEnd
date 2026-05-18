@@ -659,6 +659,13 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
         )
 
     def test_admin_can_list_prescription_logs(self):
+        SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            status=SignQualityReport.STATUS_OPEN,
+        )
         self.client.force_authenticate(self.admin_user)
 
         response = self.client.get(reverse("admin-prescription-log-list"))
@@ -666,12 +673,39 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(response.data["count"], 2)
         row = response.data["results"][0]
-        self.assertIn("patient", row)
-        self.assertIn("pharmacy", row)
-        self.assertIn("pharmacist", row)
-        self.assertIn("date", row)
-        self.assertEqual(row["total_price"], "4800.00")
-        self.assertEqual(row["currency"], "SYP")
+        self.assertEqual(
+            set(row.keys()),
+            {
+                "id",
+                "operation_id",
+                "patient",
+                "pharmacist",
+                "pharmacy",
+                "sent_date",
+                "medicines_count",
+                "linked_quality_report_status",
+            },
+        )
+        self.assertEqual(row["operation_id"], row["id"])
+        self.assertEqual(row["patient"]["full_name"], "Log Patient")
+        self.assertEqual(row["pharmacist"]["full_name"], "Log Pharmacist")
+        self.assertEqual(row["pharmacy"]["name"], "Log Pharmacy")
+        self.assertEqual(row["medicines_count"], 2)
+        self.assertEqual(row["linked_quality_report_status"], SignQualityReport.STATUS_OPEN)
+        sensitive_fields = {
+            "dosage",
+            "frequency",
+            "duration",
+            "instructions_text",
+            "instructions_transcript_raw",
+            "instructions_transcript_edited",
+            "diagnosis",
+            "notes",
+            "items",
+            "total_price",
+            "currency",
+        }
+        self.assertTrue(sensitive_fields.isdisjoint(row.keys()))
 
     def test_non_admin_cannot_list_prescription_logs(self):
         self.client.force_authenticate(self.patient_user)
@@ -723,11 +757,31 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["results"])
-        self.assertTrue(
-            all(
-                row["status"] == PrescriptionStatusChoices.SUBMITTED
-                for row in response.data["results"]
-            )
+        ids = {row["id"] for row in response.data["results"]}
+        self.assertIn(self.prescription.id, ids)
+        self.assertNotIn(self.other_prescription.id, ids)
+
+    def test_quality_report_status_filter_works(self):
+        SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            status=SignQualityReport.STATUS_OPEN,
+        )
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(
+            reverse("admin-prescription-log-list"),
+            {"quality_report_status": SignQualityReport.STATUS_OPEN},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["id"], self.prescription.id)
+        self.assertEqual(
+            response.data["results"][0]["linked_quality_report_status"],
+            SignQualityReport.STATUS_OPEN,
         )
 
     def test_pharmacy_filter_works(self):

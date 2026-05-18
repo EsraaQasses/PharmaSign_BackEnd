@@ -6,6 +6,7 @@ from django.utils import timezone
 from common.choices import (
     BloodTypeChoices,
     GenderChoices,
+    HearingConditionTypeChoices,
     HearingDisabilityLevelChoices,
     PatientSessionAccessTypeChoices,
     RoleChoices,
@@ -37,10 +38,18 @@ class PatientProfile(TimeStampedModel):
         blank=True,
     )
     address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True, default="")
+    region = models.CharField(max_length=100, blank=True, default="")
     hearing_disability_level = models.CharField(
         max_length=20,
         choices=HearingDisabilityLevelChoices.choices,
         blank=True,
+    )
+    hearing_condition_type = models.CharField(
+        max_length=50,
+        choices=HearingConditionTypeChoices.choices,
+        blank=True,
+        default="",
     )
     is_self_registered = models.BooleanField(default=False)
     qr_code_value = models.CharField(max_length=128, unique=True, null=True, blank=True)
