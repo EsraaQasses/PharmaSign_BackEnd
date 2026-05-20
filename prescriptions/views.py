@@ -1233,6 +1233,11 @@ class AdminActivityLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             "role": RoleChoices.PATIENT,
         }
 
+    def _pharmacy_name(self, pharmacy):
+        if pharmacy is None:
+            return None
+        return pharmacy.name or None
+
     def _prescription_row(self, prescription, action_status, created_at):
         action = f"prescription_{action_status}"
         return {
@@ -1243,6 +1248,9 @@ class AdminActivityLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             "target_type": "prescription",
             "target_id": prescription.id,
             "target_label": f"Prescription #{prescription.id}",
+            "pharmacy_name": self._pharmacy_name(
+                getattr(prescription, "pharmacy", None)
+            ),
             "created_at": created_at,
             "status": prescription.status,
         }
@@ -1261,6 +1269,9 @@ class AdminActivityLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             "target_type": "sign_quality_report",
             "target_id": report.id,
             "target_label": f"Sign quality report #{report.id}",
+            "pharmacy_name": self._pharmacy_name(
+                getattr(getattr(report, "prescription", None), "pharmacy", None)
+            ),
             "created_at": created_at,
             "status": report.status,
         }

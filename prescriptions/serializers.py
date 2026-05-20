@@ -593,6 +593,7 @@ class AdminActivityLogSerializer(serializers.Serializer):
     target_type = serializers.CharField()
     target_id = serializers.IntegerField()
     target_label = serializers.CharField()
+    pharmacy_name = serializers.CharField(allow_null=True)
     created_at = serializers.DateTimeField()
     status = serializers.CharField(allow_null=True)
 

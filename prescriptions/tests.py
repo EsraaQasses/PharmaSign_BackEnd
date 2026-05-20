@@ -1108,6 +1108,7 @@ class AdminActivityLogTests(APITestCase):
             "target_type",
             "target_id",
             "target_label",
+            "pharmacy_name",
             "created_at",
             "status",
         }
@@ -1127,6 +1128,12 @@ class AdminActivityLogTests(APITestCase):
             "transcript",
             "audio",
             "video",
+            'pharmacy":',
+            "phone_number",
+            "activity address",
+            "other address",
+            "city",
+            "region",
             "sensitive medicine",
             "sensitive dosage",
             "sensitive frequency",
@@ -1153,6 +1160,7 @@ class AdminActivityLogTests(APITestCase):
         )
         self.assertEqual(row["target_type"], "prescription")
         self.assertEqual(row["target_label"], f"Prescription #{self.prescription.id}")
+        self.assertEqual(row["pharmacy_name"], self.pharmacy.name)
         self.assertEqual(row["actor"]["role"], RoleChoices.PHARMACIST)
         self.assertEqual(row["actor"]["full_name"], "Activity Pharmacist")
 
@@ -1168,6 +1176,7 @@ class AdminActivityLogTests(APITestCase):
         )
         self.assertEqual(row["target_type"], "sign_quality_report")
         self.assertEqual(row["target_label"], f"Sign quality report #{self.report.id}")
+        self.assertEqual(row["pharmacy_name"], self.pharmacy.name)
         self.assertEqual(row["actor"]["role"], RoleChoices.PATIENT)
 
     def test_organization_staff_admin_only_sees_own_organization(self):
