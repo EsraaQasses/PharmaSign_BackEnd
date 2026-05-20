@@ -1731,6 +1731,103 @@ class AdminPhaseAApiTests(APITestCase):
         )
         self.assertEqual(response.data["patients_by_city"], [])
 
+    def test_dashboard_stats_patients_by_city_groups_location_and_counts(self):
+        admin_user = self.create_user(
+            "dashboard.city.admin@example.com",
+            RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        city = "دمشق"
+        region_mazza = "المزة"
+        region_baramkeh = "البرامكة"
+
+        for index in range(5):
+            user = self.create_user(
+                f"dashboard.city.mazza.{index}@example.com",
+                RoleChoices.PATIENT,
+            )
+            PatientProfile.objects.create(
+                user=user,
+                full_name=f"Sensitive Mazza Patient {index}",
+                city=city,
+                region=region_mazza,
+                gender=GenderChoices.MALE if index < 2 else GenderChoices.FEMALE,
+                qr_is_active=index < 4,
+            )
+        for index in range(2):
+            user = self.create_user(
+                f"dashboard.city.baramkeh.{index}@example.com",
+                RoleChoices.PATIENT,
+            )
+            PatientProfile.objects.create(
+                user=user,
+                full_name=f"Sensitive Baramkeh Patient {index}",
+                city=city,
+                region=region_baramkeh,
+                gender=GenderChoices.FEMALE,
+                qr_is_active=index == 0,
+            )
+        unspecified_user = self.create_user(
+            "dashboard.city.unspecified@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=unspecified_user,
+            full_name="Sensitive Unspecified Patient",
+            city="",
+            region="",
+            gender=GenderChoices.MALE,
+            qr_is_active=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get(reverse("accounts:admin_dashboard_stats"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        groups = {
+            (row["city"], row["region"]): row
+            for row in response.data["patients_by_city"]
+        }
+        self.assertEqual(groups[(city, region_mazza)]["patients_count"], 5)
+        self.assertEqual(groups[(city, region_mazza)]["male_count"], 2)
+        self.assertEqual(groups[(city, region_mazza)]["female_count"], 3)
+        self.assertEqual(groups[(city, region_mazza)]["active_qr_count"], 4)
+        self.assertEqual(groups[(city, region_baramkeh)]["patients_count"], 2)
+        self.assertEqual(groups[(city, region_baramkeh)]["male_count"], 0)
+        self.assertEqual(groups[(city, region_baramkeh)]["female_count"], 2)
+        self.assertEqual(groups[(city, region_baramkeh)]["active_qr_count"], 1)
+        self.assertEqual(groups[("غير محدد", "غير محدد")]["patients_count"], 1)
+        self.assertEqual(groups[("غير محدد", "غير محدد")]["male_count"], 1)
+        self.assertEqual(groups[("غير محدد", "غير محدد")]["female_count"], 0)
+        self.assertEqual(groups[("غير محدد", "غير محدد")]["active_qr_count"], 0)
+        self.assertEqual(
+            [(row["city"], row["region"]) for row in response.data["patients_by_city"]],
+            [
+                (city, region_mazza),
+                (city, region_baramkeh),
+                ("غير محدد", "غير محدد"),
+            ],
+        )
+        self.assertIn("hearing_severity_distribution", response.data)
+        self.assertIn("hearing_condition_type_distribution", response.data)
+        self.assertIn("patients_count", response.data)
+        for row in response.data["patients_by_city"]:
+            self.assertEqual(
+                set(row.keys()),
+                {
+                    "city",
+                    "region",
+                    "patients_count",
+                    "male_count",
+                    "female_count",
+                    "active_qr_count",
+                },
+            )
+            self.assertNotIn("full_name", row)
+            self.assertNotIn("phone_number", row)
+            self.assertNotIn("medical_info", row)
+            self.assertNotIn("prescription", row)
+
     def test_non_admin_user_cannot_call_dashboard_stats(self):
         patient_user = self.create_user(
             "dashboard.patient@example.com",
@@ -1887,6 +1984,19 @@ class AdminPhaseAApiTests(APITestCase):
         self.assertEqual(response.data["active_qr_count"], 1)
         self.assertEqual(response.data["pending_approvals_count"], 1)
         self.assertEqual(response.data["sign_quality_follow_up_count"], 1)
+        self.assertEqual(
+            response.data["patients_by_city"],
+            [
+                {
+                    "city": "غير محدد",
+                    "region": "غير محدد",
+                    "patients_count": 2,
+                    "male_count": 0,
+                    "female_count": 1,
+                    "active_qr_count": 1,
+                }
+            ],
+        )
         condition_counts = {
             row["value"]: row
             for row in response.data["hearing_condition_type_distribution"]

@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -18,27 +19,28 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from common.api_errors import error_response, validation_error_payload
 from common.choices import (
     ApprovalStatusChoices,
+    GenderChoices,
     HearingConditionTypeChoices,
     RoleChoices,
 )
 from common.permissions import is_admin_role
 from patients.models import PatientProfile
-from pharmacies.serializers import PharmacistRegisterSerializer
 from pharmacies.models import PharmacistProfile, Pharmacy
+from pharmacies.serializers import PharmacistRegisterSerializer
 from prescriptions.models import Prescription, SignQualityReport
 
 from .serializers import (
+    PENDING_ACCOUNT_DETAIL,
+    REJECTED_ACCOUNT_DETAIL,
     AdminApprovalRequestSerializer,
     AdminAuthMeSerializer,
     AuthMeSerializer,
     ChangePasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
-    PENDING_ACCOUNT_DETAIL,
-    PatientRegistrationOTPRequestSerializer,
     PatientQRLoginSerializer,
+    PatientRegistrationOTPRequestSerializer,
     PatientSelfRegisterSerializer,
-    REJECTED_ACCOUNT_DETAIL,
     RegistrationOTPRequestSerializer,
 )
 from .services import OTPDeliveryError
@@ -373,6 +375,31 @@ class AuthViewSet(viewsets.ViewSet):
                 groups["61+"] += 1
         return [{"value": label, "count": count} for label, count in groups.items()]
 
+    def _patients_by_city_distribution(self, queryset):
+        unknown = "غير محدد"
+        return [
+            {
+                "city": row["city_label"],
+                "region": row["region_label"],
+                "patients_count": row["patients_count"],
+                "male_count": row["male_count"],
+                "female_count": row["female_count"],
+                "active_qr_count": row["active_qr_count"],
+            }
+            for row in queryset.annotate(
+                city_label=Coalesce(NullIf("city", Value("")), Value(unknown)),
+                region_label=Coalesce(NullIf("region", Value("")), Value(unknown)),
+            )
+            .values("city_label", "region_label")
+            .annotate(
+                patients_count=Count("id"),
+                male_count=Count("id", filter=Q(gender=GenderChoices.MALE)),
+                female_count=Count("id", filter=Q(gender=GenderChoices.FEMALE)),
+                active_qr_count=Count("id", filter=Q(qr_is_active=True)),
+            )
+            .order_by("-patients_count", "city_label", "region_label")
+        ]
+
     def _recent_patients_payload(self, queryset):
         return [
             {
@@ -466,10 +493,6 @@ class AuthViewSet(viewsets.ViewSet):
         sign_quality_queryset = self._dashboard_sign_quality_queryset(user)
         approval_queryset = self._dashboard_approval_queryset(user)
 
-        # City/region are not structured backend fields yet; keep this empty
-        # until Phase B introduces an explicit location model/fields.
-        patients_by_city = []
-
         return {
             "patients_count": patient_queryset.count(),
             "pharmacists_count": pharmacist_queryset.count(),
@@ -492,7 +515,7 @@ class AuthViewSet(viewsets.ViewSet):
                 self._hearing_condition_type_distribution(patient_queryset)
             ),
             "age_groups": self._age_group_distribution(patient_queryset),
-            "patients_by_city": patients_by_city,
+            "patients_by_city": self._patients_by_city_distribution(patient_queryset),
             "recent_patients": self._recent_patients_payload(patient_queryset),
             "recent_approval_requests": self._recent_approval_requests_payload(
                 approval_queryset
