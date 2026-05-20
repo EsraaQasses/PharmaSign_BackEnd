@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from common.choices import (
     ApprovalStatusChoices,
     GenderChoices,
+    HearingConditionTypeChoices,
     HearingDisabilityLevelChoices,
     RoleChoices,
 )
@@ -890,7 +891,9 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["code"], "pharmacy_not_contracted")
-        self.assertEqual(response.data["detail"], "Selected pharmacy is not contracted.")
+        self.assertEqual(
+            response.data["detail"], "Selected pharmacy is not contracted."
+        )
 
     @override_settings(DEBUG=True)
     def test_pharmacist_register_without_pharmacy_id_or_legacy_fields_fails(self):
@@ -1605,7 +1608,9 @@ class AdminPhaseAApiTests(APITestCase):
         self.assertEqual(response.data["user"]["role"], RoleChoices.ADMIN)
         self.assertTrue(response.data["user"]["is_staff"])
         self.assertFalse(response.data["user"]["is_superuser"])
-        self.assertEqual(response.data["profile"]["organization"]["id"], organization.id)
+        self.assertEqual(
+            response.data["profile"]["organization"]["id"], organization.id
+        )
         self.assertTrue(response.data["profile"]["can_manage_patients"])
         self.assertTrue(response.data["profile"]["can_manage_pharmacists"])
         self.assertIn("access", response.data)
@@ -1675,7 +1680,9 @@ class AdminPhaseAApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["user"]["id"], admin_user.id)
-        self.assertEqual(response.data["profile"]["organization"]["name"], organization.name)
+        self.assertEqual(
+            response.data["profile"]["organization"]["name"], organization.name
+        )
         self.assertTrue(response.data["profile"]["can_manage_patients"])
         self.assertFalse(response.data["profile"]["can_manage_pharmacists"])
 
@@ -1715,6 +1722,7 @@ class AdminPhaseAApiTests(APITestCase):
                 "sign_quality_follow_up_count",
                 "gender_distribution",
                 "hearing_severity_distribution",
+                "hearing_condition_type_distribution",
                 "age_groups",
                 "patients_by_city",
                 "recent_patients",
@@ -1764,6 +1772,7 @@ class AdminPhaseAApiTests(APITestCase):
             birth_date=date(1990, 1, 1),
             gender=GenderChoices.FEMALE,
             hearing_disability_level=HearingDisabilityLevelChoices.SEVERE,
+            hearing_condition_type=HearingConditionTypeChoices.HARD_OF_HEARING,
             qr_is_active=True,
         )
         other_patient_user = self.create_user(
@@ -1775,6 +1784,7 @@ class AdminPhaseAApiTests(APITestCase):
             organization=other_org,
             full_name="Other Patient",
             gender=GenderChoices.MALE,
+            hearing_condition_type=HearingConditionTypeChoices.DEAF_FROM_BIRTH,
             qr_is_active=True,
         )
 
@@ -1877,6 +1887,27 @@ class AdminPhaseAApiTests(APITestCase):
         self.assertEqual(response.data["active_qr_count"], 1)
         self.assertEqual(response.data["pending_approvals_count"], 1)
         self.assertEqual(response.data["sign_quality_follow_up_count"], 1)
+        condition_counts = {
+            row["value"]: row
+            for row in response.data["hearing_condition_type_distribution"]
+        }
+        self.assertEqual(
+            condition_counts[HearingConditionTypeChoices.HARD_OF_HEARING]["count"],
+            1,
+        )
+        self.assertEqual(
+            condition_counts[HearingConditionTypeChoices.DEAF_FROM_BIRTH]["count"],
+            0,
+        )
+        self.assertEqual(
+            condition_counts[HearingConditionTypeChoices.DEAF_DUE_TO_ACCIDENT]["count"],
+            0,
+        )
+        self.assertEqual(condition_counts[""]["count"], 1)
+        self.assertTrue(
+            condition_counts[HearingConditionTypeChoices.HARD_OF_HEARING]["label"]
+        )
+        self.assertIn("hearing_severity_distribution", response.data)
         self.assertEqual(len(response.data["recent_approval_requests"]), 1)
         self.assertEqual(
             response.data["recent_approval_requests"][0]["id"],
@@ -1971,7 +2002,10 @@ class AdminApprovalPhaseDApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["results"])
         self.assertTrue(
-            all(row["type"] == RoleChoices.PHARMACIST for row in response.data["results"])
+            all(
+                row["type"] == RoleChoices.PHARMACIST
+                for row in response.data["results"]
+            )
         )
 
     def test_list_supports_status_filter(self):
@@ -2041,9 +2075,11 @@ class AdminApprovalPhaseDApiTests(APITestCase):
         self.assertEqual(response.data["type"], RoleChoices.PHARMACIST)
         self.assertEqual(response.data["selected_pharmacy_id"], self.pharmacy.id)
         self.assertEqual(response.data["pharmacist_license_number"], "PHASE-D-LIC")
-        self.assertEqual(response.data["details"]["pharmacy"]["name"], self.pharmacy.name)
-        self.assertIsNone(response.data["details"]["pharmacy"]["city"])
-        self.assertIsNone(response.data["details"]["pharmacy"]["region"])
+        self.assertEqual(
+            response.data["details"]["pharmacy"]["name"], self.pharmacy.name
+        )
+        self.assertEqual(response.data["details"]["pharmacy"]["city"], "")
+        self.assertEqual(response.data["details"]["pharmacy"]["region"], "")
 
     def test_admin_can_approve_patient_request(self):
         self.client.force_authenticate(self.admin_user)
@@ -2064,7 +2100,9 @@ class AdminApprovalPhaseDApiTests(APITestCase):
             ApprovalStatusChoices.APPROVED,
         )
         self.assertTrue(self.patient_user.is_verified)
-        self.assertEqual(response.data["request"]["status"], ApprovalStatusChoices.APPROVED)
+        self.assertEqual(
+            response.data["request"]["status"], ApprovalStatusChoices.APPROVED
+        )
 
     def test_admin_can_reject_patient_request_with_reason(self):
         self.client.force_authenticate(self.admin_user)
@@ -2085,7 +2123,9 @@ class AdminApprovalPhaseDApiTests(APITestCase):
             ApprovalStatusChoices.REJECTED,
         )
         self.assertEqual(self.patient_user.rejection_reason, "Missing documents")
-        self.assertEqual(response.data["request"]["rejection_reason"], "Missing documents")
+        self.assertEqual(
+            response.data["request"]["rejection_reason"], "Missing documents"
+        )
 
     def test_admin_can_approve_pharmacist_request_and_profile(self):
         self.client.force_authenticate(self.admin_user)

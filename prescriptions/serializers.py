@@ -938,6 +938,8 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
         source="prescription.doctor_specialty",
         read_only=True,
     )
+    pharmacist = serializers.SerializerMethodField()
+    pharmacy = serializers.SerializerMethodField()
     prescription = serializers.SerializerMethodField()
     prescription_item = serializers.SerializerMethodField()
 
@@ -948,12 +950,15 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
             "patient",
             "doctor_name",
             "doctor_specialty",
+            "pharmacist",
+            "pharmacy",
             "prescription",
             "prescription_item",
             "medicine_name",
             "approved_instruction_text",
             "report_type",
             "status",
+            "admin_notes",
             "created_at",
             "updated_at",
         )
@@ -961,6 +966,32 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
 
     def get_patient(self, obj):
         return build_prescription_patient_payload(obj.patient)
+
+    def get_pharmacist(self, obj):
+        prescription = getattr(obj, "prescription", None)
+        pharmacist = getattr(prescription, "pharmacist", None)
+        if pharmacist is None:
+            return None
+        user = getattr(pharmacist, "user", None)
+        return {
+            "id": pharmacist.id,
+            "full_name": pharmacist.full_name,
+            "phone_number": getattr(user, "phone_number", "") if user else "",
+        }
+
+    def get_pharmacy(self, obj):
+        prescription = getattr(obj, "prescription", None)
+        pharmacy = getattr(prescription, "pharmacy", None)
+        if pharmacy is None:
+            return None
+        return {
+            "id": pharmacy.id,
+            "name": pharmacy.name,
+            "phone_number": pharmacy.phone_number,
+            "address": pharmacy.address,
+            "city": pharmacy.city,
+            "region": pharmacy.region,
+        }
 
     def get_prescription(self, obj):
         prescription = obj.prescription
@@ -991,4 +1022,4 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
 class AdminSignQualityReportUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignQualityReport
-        fields = ("status",)
+        fields = ("status", "admin_notes")

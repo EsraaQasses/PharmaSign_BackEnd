@@ -16,7 +16,11 @@ from rest_framework_simplejwt.token_blacklist.models import (
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.api_errors import error_response, validation_error_payload
-from common.choices import ApprovalStatusChoices, RoleChoices
+from common.choices import (
+    ApprovalStatusChoices,
+    HearingConditionTypeChoices,
+    RoleChoices,
+)
 from common.permissions import is_admin_role
 from patients.models import PatientProfile
 from pharmacies.serializers import PharmacistRegisterSerializer
@@ -317,6 +321,30 @@ class AuthViewSet(viewsets.ViewSet):
             .order_by(field_name)
         ]
 
+    def _hearing_condition_type_distribution(self, queryset):
+        raw_counts = {
+            row["hearing_condition_type"] or "": row["count"]
+            for row in queryset.values("hearing_condition_type")
+            .annotate(count=Count("id"))
+            .order_by("hearing_condition_type")
+        }
+        distribution = [
+            {
+                "value": value,
+                "label": str(label),
+                "count": raw_counts.get(value, 0),
+            }
+            for value, label in HearingConditionTypeChoices.choices
+        ]
+        distribution.append(
+            {
+                "value": "",
+                "label": "غير محدد",
+                "count": raw_counts.get("", 0),
+            }
+        )
+        return distribution
+
     def _age_group_distribution(self, queryset):
         today = timezone.localdate()
         groups = {
@@ -459,6 +487,9 @@ class AuthViewSet(viewsets.ViewSet):
             "hearing_severity_distribution": self._distribution(
                 patient_queryset,
                 "hearing_disability_level",
+            ),
+            "hearing_condition_type_distribution": (
+                self._hearing_condition_type_distribution(patient_queryset)
             ),
             "age_groups": self._age_group_distribution(patient_queryset),
             "patients_by_city": patients_by_city,

@@ -200,6 +200,9 @@ class SignQualityReportTests(APITestCase):
         self.pharmacy = Pharmacy.objects.create(
             name="Quality Pharmacy",
             address="Damascus",
+            city="Damascus",
+            region="Mazza",
+            phone_number="011710000",
             organization=self.organization,
             is_contracted_with_organization=True,
         )
@@ -393,6 +396,7 @@ class SignQualityReportTests(APITestCase):
             medicine_name=self.item.medicine_name,
             approved_instruction_text=self.item.instructions_transcript_edited,
             report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+            admin_notes="Initial follow-up note",
         )
         admin_user = User.objects.create_user(
             email="quality.admin@example.com",
@@ -430,6 +434,38 @@ class SignQualityReportTests(APITestCase):
             self.prescription.doctor_specialty,
         )
         self.assertEqual(
+            response.data["results"][0]["pharmacist"]["id"],
+            self.pharmacist.id,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacist"]["full_name"],
+            self.pharmacist.full_name,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacist"]["phone_number"],
+            self.pharmacist_user.phone_number,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacy"]["id"],
+            self.pharmacy.id,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacy"]["name"],
+            self.pharmacy.name,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacy"]["phone_number"],
+            self.pharmacy.phone_number,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacy"]["city"],
+            self.pharmacy.city,
+        )
+        self.assertEqual(
+            response.data["results"][0]["pharmacy"]["region"],
+            self.pharmacy.region,
+        )
+        self.assertEqual(
             response.data["results"][0]["prescription"]["id"],
             self.prescription.id,
         )
@@ -447,6 +483,44 @@ class SignQualityReportTests(APITestCase):
         )
         self.assertNotIn("items", response.data["results"][0]["prescription"])
         self.assertEqual(response.data["results"][0]["medicine_name"], "Snapshot Med")
+        self.assertEqual(
+            response.data["results"][0]["admin_notes"],
+            "Initial follow-up note",
+        )
+
+    def test_admin_report_detail_includes_contact_context(self):
+        report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            approved_instruction_text=self.item.instructions_transcript_edited,
+            report_type=SignQualityReport.REPORT_TYPE_SIGN_UNCLEAR,
+        )
+        admin_user = User.objects.create_user(
+            email="quality.admin.detail@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=admin_user,
+            organization=self.organization,
+            can_manage_patients=True,
+            can_manage_pharmacists=False,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.get(
+            reverse("admin-sign-quality-report-detail", kwargs={"pk": report.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pharmacist"]["id"], self.pharmacist.id)
+        self.assertEqual(response.data["pharmacy"]["id"], self.pharmacy.id)
+        self.assertEqual(response.data["prescription_item"]["id"], self.item.id)
+        self.assertNotIn("items", response.data["prescription"])
+        self.assertEqual(response.data["admin_notes"], "")
 
     def test_admin_can_filter_reports_by_search_and_prescription_item_id(self):
         report = SignQualityReport.objects.create(
@@ -539,6 +613,9 @@ class SignQualityReportTests(APITestCase):
                     "medicine_name": "Changed",
                     "approved_instruction_text": "Changed",
                     "report_type": "changed",
+                    "pharmacist": 999999,
+                    "pharmacy": 999999,
+                    "admin_notes": f"Follow-up note {target_status}",
                 },
                 format="json",
             )
@@ -546,6 +623,7 @@ class SignQualityReportTests(APITestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             report.refresh_from_db()
             self.assertEqual(report.status, target_status)
+            self.assertEqual(report.admin_notes, f"Follow-up note {target_status}")
         self.assertEqual(report.patient, self.patient)
         self.assertEqual(report.prescription, self.prescription)
         self.assertEqual(report.prescription_item, self.item)
@@ -691,7 +769,9 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
         self.assertEqual(row["pharmacist"]["full_name"], "Log Pharmacist")
         self.assertEqual(row["pharmacy"]["name"], "Log Pharmacy")
         self.assertEqual(row["medicines_count"], 2)
-        self.assertEqual(row["linked_quality_report_status"], SignQualityReport.STATUS_OPEN)
+        self.assertEqual(
+            row["linked_quality_report_status"], SignQualityReport.STATUS_OPEN
+        )
         sensitive_fields = {
             "dosage",
             "frequency",

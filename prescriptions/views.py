@@ -1140,7 +1140,9 @@ class AdminPrescriptionLogViewSet(
 
         quality_report_status = self.request.query_params.get("quality_report_status")
         if quality_report_status:
-            queryset = queryset.filter(sign_quality_reports__status=quality_report_status)
+            queryset = queryset.filter(
+                sign_quality_reports__status=quality_report_status
+            )
 
         return queryset.distinct()
 
@@ -1165,6 +1167,9 @@ class AdminSignQualityReportViewSet(
             "patient__user",
             "patient__organization",
             "prescription",
+            "prescription__pharmacist",
+            "prescription__pharmacist__user",
+            "prescription__pharmacy",
             "prescription_item",
         )
         user = self.request.user

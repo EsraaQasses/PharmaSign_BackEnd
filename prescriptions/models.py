@@ -240,9 +240,7 @@ class SignQualityReport(TimeStampedModel):
     STATUS_RESOLVED = "resolved"
     STATUS_DISMISSED = "dismissed"
 
-    REPORT_TYPE_CHOICES = (
-        (REPORT_TYPE_SIGN_UNCLEAR, "Sign unclear"),
-    )
+    REPORT_TYPE_CHOICES = ((REPORT_TYPE_SIGN_UNCLEAR, "Sign unclear"),)
     STATUS_CHOICES = (
         (STATUS_OPEN, "Open"),
         (STATUS_REVIEWED, "Reviewed"),
@@ -277,6 +275,7 @@ class SignQualityReport(TimeStampedModel):
         choices=STATUS_CHOICES,
         default=STATUS_OPEN,
     )
+    admin_notes = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ("-created_at",)

@@ -313,7 +313,9 @@ class PatientSessionFlowTests(APITestCase):
         self.assertEqual(patient.city, "Damascus")
         self.assertEqual(patient.region, "Mazza")
         self.assertEqual(patient.hearing_condition_type, "deaf_from_birth")
-        self.assertEqual(response.data["hearing_condition_type_display"], "أصم منذ الولادة")
+        self.assertEqual(
+            response.data["hearing_condition_type_display"], "أصم منذ الولادة"
+        )
 
     def test_admin_can_create_patient_account_without_email(self):
         admin_user = User.objects.create_user(
@@ -1198,7 +1200,9 @@ class AdminPatientPhaseBApiTests(APITestCase):
             with self.subTest(value=value):
                 self.patient.hearing_condition_type = value
                 self.patient.full_clean()
-                self.patient.save(update_fields=["hearing_condition_type", "updated_at"])
+                self.patient.save(
+                    update_fields=["hearing_condition_type", "updated_at"]
+                )
                 self.patient.refresh_from_db()
                 self.assertEqual(self.patient.hearing_condition_type, value)
 
@@ -1284,8 +1288,8 @@ class AdminPatientPhaseBApiTests(APITestCase):
         self.assertEqual(qr["id"], self.patient.id)
         self.assertEqual(qr["value"], "phase-b-qr")
         self.assertEqual(qr["status"], "active")
-        self.assertIsNone(qr["patient"]["city"])
-        self.assertIsNone(qr["patient"]["region"])
+        self.assertEqual(qr["patient"]["city"], self.patient.city)
+        self.assertEqual(qr["patient"]["region"], self.patient.region)
         self.assertNotIn("token_hash", str(response.data))
         self.assertNotIn("not-exposed-token-hash", str(response.data))
 
