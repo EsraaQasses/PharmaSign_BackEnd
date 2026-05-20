@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import shutil
 from datetime import date, timedelta
@@ -948,6 +949,323 @@ class AdminPrescriptionLogPhaseETests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], self.prescription.id)
+
+
+class AdminActivityLogTests(APITestCase):
+    def setUp(self):
+        self.org_a = Organization.objects.create(name="Activity Org A")
+        self.org_b = Organization.objects.create(name="Activity Org B")
+        self.admin_user = User.objects.create_user(
+            email="activity.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        OrganizationStaffProfile.objects.create(
+            user=self.admin_user,
+            organization=self.org_a,
+            can_manage_patients=True,
+        )
+        self.superuser = User.objects.create_superuser(
+            email="activity.superuser@example.com",
+            password="StrongPass123!",
+        )
+        self.patient_user = User.objects.create_user(
+            email="activity.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        self.pharmacist_user = User.objects.create_user(
+            email="activity.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        self.patient = PatientProfile.objects.create(
+            user=self.patient_user,
+            organization=self.org_a,
+            full_name="Activity Patient",
+        )
+        self.pharmacy = Pharmacy.objects.create(
+            name="Activity Pharmacy",
+            address="Activity Address",
+            organization=self.org_a,
+            is_contracted_with_organization=True,
+        )
+        self.pharmacist = PharmacistProfile.objects.create(
+            user=self.pharmacist_user,
+            pharmacy=self.pharmacy,
+            full_name="Activity Pharmacist",
+            license_number="ACT-LIC",
+            is_approved=True,
+        )
+        self.submitted_at = timezone.now() - timedelta(days=1)
+        self.prescription = Prescription.objects.create(
+            patient=self.patient,
+            pharmacist=self.pharmacist,
+            pharmacy=self.pharmacy,
+            doctor_name="Sensitive Doctor",
+            doctor_specialty="Sensitive Specialty",
+            diagnosis="Sensitive Diagnosis",
+            status=PrescriptionStatusChoices.SUBMITTED,
+            prescribed_at=timezone.now() - timedelta(days=2),
+            submitted_at=self.submitted_at,
+            notes="Sensitive prescription notes",
+        )
+        self.item = PrescriptionItem.objects.create(
+            prescription=self.prescription,
+            medicine_name="Sensitive Medicine",
+            dosage="Sensitive Dosage",
+            frequency="Sensitive Frequency",
+            duration="Sensitive Duration",
+            instructions_text="Sensitive Instructions",
+            instructions_transcript_raw="Sensitive Raw Transcript",
+            instructions_transcript_edited="Sensitive Edited Transcript",
+            supporting_text="Sensitive Sign Text",
+            sign_status=SignStatusChoices.COMPLETED,
+            unit_price="1000.00",
+            quantity="1",
+        )
+        self.report = SignQualityReport.objects.create(
+            patient=self.patient,
+            prescription=self.prescription,
+            prescription_item=self.item,
+            medicine_name=self.item.medicine_name,
+            approved_instruction_text="Sensitive Approved Instruction",
+            status=SignQualityReport.STATUS_OPEN,
+            admin_notes="Sensitive admin note",
+        )
+
+        self.other_patient_user = User.objects.create_user(
+            email="activity.other.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        self.other_pharmacist_user = User.objects.create_user(
+            email="activity.other.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        self.other_patient = PatientProfile.objects.create(
+            user=self.other_patient_user,
+            organization=self.org_b,
+            full_name="Other Activity Patient",
+        )
+        self.other_pharmacy = Pharmacy.objects.create(
+            name="Other Activity Pharmacy",
+            address="Other Address",
+            organization=self.org_b,
+            is_contracted_with_organization=True,
+        )
+        self.other_pharmacist = PharmacistProfile.objects.create(
+            user=self.other_pharmacist_user,
+            pharmacy=self.other_pharmacy,
+            full_name="Other Activity Pharmacist",
+            is_approved=True,
+        )
+        self.other_prescription = Prescription.objects.create(
+            patient=self.other_patient,
+            pharmacist=self.other_pharmacist,
+            pharmacy=self.other_pharmacy,
+            doctor_name="Other Doctor",
+            status=PrescriptionStatusChoices.SUBMITTED,
+            submitted_at=timezone.now(),
+        )
+
+    def _rows(self, user=None, params=None):
+        if user is not None:
+            self.client.force_authenticate(user)
+        response = self.client.get(reverse("admin-activity-log"), params or {})
+        return response, response.data.get("results", [])
+
+    def test_endpoint_requires_admin_authentication(self):
+        unauthenticated = self.client.get(reverse("admin-activity-log"))
+        self.assertIn(
+            unauthenticated.status_code,
+            {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN},
+        )
+
+        self.client.force_authenticate(self.patient_user)
+        patient_response = self.client.get(reverse("admin-activity-log"))
+        self.assertEqual(patient_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.pharmacist_user)
+        pharmacist_response = self.client.get(reverse("admin-activity-log"))
+        self.assertEqual(pharmacist_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.admin_user)
+        admin_response = self.client.get(reverse("admin-activity-log"))
+        self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
+
+    def test_safe_response_fields_only(self):
+        response, rows = self._rows(self.admin_user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        allowed_keys = {
+            "id",
+            "actor",
+            "action",
+            "action_label",
+            "target_type",
+            "target_id",
+            "target_label",
+            "created_at",
+            "status",
+        }
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(set(row.keys()), allowed_keys)
+            if row["actor"] is not None:
+                self.assertEqual(set(row["actor"].keys()), {"id", "full_name", "role"})
+
+        payload = json.dumps(response.data, ensure_ascii=False).lower()
+        blocked_terms = [
+            "dosage",
+            "frequency",
+            "duration",
+            "diagnosis",
+            "instructions_text",
+            "transcript",
+            "audio",
+            "video",
+            "sensitive medicine",
+            "sensitive dosage",
+            "sensitive frequency",
+            "sensitive duration",
+            "sensitive diagnosis",
+            "sensitive instructions",
+            "sensitive raw transcript",
+            "sensitive edited transcript",
+            "sensitive approved instruction",
+            "sensitive admin note",
+        ]
+        for term in blocked_terms:
+            self.assertNotIn(term, payload)
+
+    def test_includes_prescription_activity_safely(self):
+        response, rows = self._rows(self.admin_user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = next(
+            row
+            for row in rows
+            if row["action"] == "prescription_submitted"
+            and row["target_id"] == self.prescription.id
+        )
+        self.assertEqual(row["target_type"], "prescription")
+        self.assertEqual(row["target_label"], f"Prescription #{self.prescription.id}")
+        self.assertEqual(row["actor"]["role"], RoleChoices.PHARMACIST)
+        self.assertEqual(row["actor"]["full_name"], "Activity Pharmacist")
+
+    def test_includes_sign_quality_report_activity_safely(self):
+        response, rows = self._rows(self.admin_user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = next(
+            row
+            for row in rows
+            if row["action"] == "sign_quality_report_created"
+            and row["target_id"] == self.report.id
+        )
+        self.assertEqual(row["target_type"], "sign_quality_report")
+        self.assertEqual(row["target_label"], f"Sign quality report #{self.report.id}")
+        self.assertEqual(row["actor"]["role"], RoleChoices.PATIENT)
+
+    def test_organization_staff_admin_only_sees_own_organization(self):
+        response, rows = self._rows(self.admin_user)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prescription_targets = {
+            row["target_id"] for row in rows if row["target_type"] == "prescription"
+        }
+        self.assertIn(self.prescription.id, prescription_targets)
+        self.assertNotIn(self.other_prescription.id, prescription_targets)
+
+    def test_superuser_can_see_all_organizations(self):
+        response, rows = self._rows(self.superuser)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        prescription_targets = {
+            row["target_id"] for row in rows if row["target_type"] == "prescription"
+        }
+        self.assertIn(self.prescription.id, prescription_targets)
+        self.assertIn(self.other_prescription.id, prescription_targets)
+
+    def test_filters_work(self):
+        self.report.status = SignQualityReport.STATUS_RESOLVED
+        self.report.save(update_fields=["status", "updated_at"])
+
+        action_response, action_rows = self._rows(
+            self.admin_user,
+            {"action": "sign_quality_report_created"},
+        )
+        self.assertEqual(action_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(action_rows)
+        self.assertTrue(
+            all(row["action"] == "sign_quality_report_created" for row in action_rows)
+        )
+
+        target_response, target_rows = self._rows(
+            self.admin_user,
+            {"target_type": "prescription"},
+        )
+        self.assertEqual(target_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(target_rows)
+        self.assertTrue(
+            all(row["target_type"] == "prescription" for row in target_rows)
+        )
+
+        status_response, status_rows = self._rows(
+            self.admin_user,
+            {"status": SignQualityReport.STATUS_RESOLVED},
+        )
+        self.assertEqual(status_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(status_rows)
+        self.assertTrue(
+            all(
+                row["status"] == SignQualityReport.STATUS_RESOLVED
+                for row in status_rows
+            )
+        )
+
+        date_response, date_rows = self._rows(
+            self.admin_user,
+            {
+                "date_from": self.submitted_at.date().isoformat(),
+                "date_to": self.submitted_at.date().isoformat(),
+            },
+        )
+        self.assertEqual(date_response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            self.prescription.id,
+            {
+                row["target_id"]
+                for row in date_rows
+                if row["target_type"] == "prescription"
+            },
+        )
+
+        search_response, search_rows = self._rows(
+            self.admin_user,
+            {"search": "Activity Pharmacist"},
+        )
+        self.assertEqual(search_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(search_rows)
+        self.assertTrue(
+            all(
+                "activity pharmacist" in row["actor"]["full_name"].lower()
+                for row in search_rows
+            )
+        )
+
+    def test_pagination_shape(self):
+        response, rows = self._rows(self.admin_user, {"page_size": 1})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("count", response.data)
+        self.assertIn("next", response.data)
+        self.assertIn("previous", response.data)
+        self.assertIn("results", response.data)
+        self.assertEqual(len(rows), 1)
 
 
 class PharmacistPrescriptionMVPTests(APITestCase):

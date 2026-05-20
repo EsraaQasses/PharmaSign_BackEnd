@@ -585,6 +585,18 @@ class AdminPrescriptionLogDetailSerializer(serializers.ModelSerializer):
         return obj.items.count()
 
 
+class AdminActivityLogSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    actor = serializers.DictField(allow_null=True)
+    action = serializers.CharField()
+    action_label = serializers.CharField()
+    target_type = serializers.CharField()
+    target_id = serializers.IntegerField()
+    target_label = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    status = serializers.CharField(allow_null=True)
+
+
 class PrescriptionCreateSerializer(serializers.ModelSerializer):
     patient = serializers.PrimaryKeyRelatedField(queryset=PatientProfile.objects.all())
 

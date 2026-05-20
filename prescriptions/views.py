@@ -7,6 +7,7 @@ from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import mixins, parsers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -24,19 +25,23 @@ from common.choices import (
 from common.permissions import (
     CanManagePatients,
     IsApprovedPharmacistRole,
-    IsPharmacistRole,
     IsPatientRole,
+    IsPharmacistRole,
     has_patient_management_access,
 )
+from transcriptions.exceptions import AudioTranscriptionError
+from transcriptions.services import transcribe_audio_file
 
 from .constants import DOCTOR_SPECIALTY_OPTIONS
 from .models import Prescription, PrescriptionItem, SignQualityReport
 from .serializers import (
+    AdminActivityLogSerializer,
     AdminPrescriptionLogDetailSerializer,
     AdminPrescriptionLogListSerializer,
     AdminSignQualityReportSerializer,
     AdminSignQualityReportUpdateSerializer,
     ApproveTranscriptSerializer,
+    PatientSignQualityReportCreateSerializer,
     PharmacistPrescriptionCreateSerializer,
     PharmacistPrescriptionItemAudioTranscriptionSerializer,
     PharmacistPrescriptionItemInputSerializer,
@@ -45,7 +50,6 @@ from .serializers import (
     PharmacistPrescriptionSerializer,
     PharmacistPrescriptionSubmitSerializer,
     PharmacistPrescriptionUpdateSerializer,
-    PatientSignQualityReportCreateSerializer,
     PrescriptionConfirmSerializer,
     PrescriptionCreateSerializer,
     PrescriptionItemCreateSerializer,
@@ -64,8 +68,6 @@ from .services import (
     mark_prescription_item_sign_processing,
     transcribe_prescription_item,
 )
-from transcriptions.exceptions import AudioTranscriptionError
-from transcriptions.services import transcribe_audio_file
 
 logger = logging.getLogger(__name__)
 
@@ -1145,6 +1147,218 @@ class AdminPrescriptionLogViewSet(
             )
 
         return queryset.distinct()
+
+
+PRESCRIPTION_ACTIVITY_LABELS = {
+    PrescriptionStatusChoices.SUBMITTED: "تم إرسال وصفة",
+    PrescriptionStatusChoices.CONFIRMED: "تم تأكيد وصفة",
+    PrescriptionStatusChoices.DELIVERED: "تم تسليم وصفة",
+    PrescriptionStatusChoices.CANCELLED: "تم إلغاء وصفة",
+    PrescriptionStatusChoices.ARCHIVED: "تم أرشفة وصفة",
+}
+
+SIGN_QUALITY_ACTIVITY_LABELS = {
+    "created": "تم إنشاء بلاغ جودة إشارة",
+    SignQualityReport.STATUS_REVIEWED: "تمت مراجعة بلاغ جودة إشارة",
+    SignQualityReport.STATUS_RESOLVED: "تم حل بلاغ جودة إشارة",
+    SignQualityReport.STATUS_DISMISSED: "تم تجاهل بلاغ جودة إشارة",
+}
+
+
+class AdminActivityLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = AdminActivityLogSerializer
+    permission_classes = [IsAuthenticated, CanManagePatients]
+    pagination_class = AdminPageNumberPagination
+    http_method_names = ["get", "head", "options"]
+
+    def _scoped_prescriptions(self):
+        queryset = Prescription.objects.select_related(
+            "patient",
+            "patient__organization",
+            "pharmacist",
+            "pharmacist__user",
+            "pharmacy",
+            "pharmacy__organization",
+        )
+        user = self.request.user
+        if not has_patient_management_access(user):
+            return queryset.none()
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if not user.is_superuser and staff_profile is not None:
+            organization = staff_profile.organization
+            queryset = queryset.filter(
+                Q(patient__organization=organization)
+                | Q(pharmacy__organization=organization)
+            )
+        return queryset
+
+    def _scoped_reports(self):
+        queryset = SignQualityReport.objects.select_related(
+            "patient",
+            "patient__user",
+            "patient__organization",
+            "prescription",
+            "prescription__pharmacy",
+            "prescription__pharmacy__organization",
+        )
+        user = self.request.user
+        if not has_patient_management_access(user):
+            return queryset.none()
+        staff_profile = getattr(user, "organization_staff_profile", None)
+        if not user.is_superuser and staff_profile is not None:
+            organization = staff_profile.organization
+            queryset = queryset.filter(
+                Q(patient__organization=organization)
+                | Q(prescription__pharmacy__organization=organization)
+            )
+        return queryset
+
+    def _actor_from_pharmacist(self, pharmacist):
+        if pharmacist is None:
+            return None
+        user = getattr(pharmacist, "user", None)
+        return {
+            "id": pharmacist.id,
+            "full_name": pharmacist.full_name or str(user or ""),
+            "role": RoleChoices.PHARMACIST,
+        }
+
+    def _actor_from_patient(self, patient):
+        if patient is None:
+            return None
+        user = getattr(patient, "user", None)
+        return {
+            "id": patient.id,
+            "full_name": patient.full_name or str(user or ""),
+            "role": RoleChoices.PATIENT,
+        }
+
+    def _prescription_row(self, prescription, action_status, created_at):
+        action = f"prescription_{action_status}"
+        return {
+            "id": f"prescription-{prescription.id}-{action_status}",
+            "actor": self._actor_from_pharmacist(prescription.pharmacist),
+            "action": action,
+            "action_label": PRESCRIPTION_ACTIVITY_LABELS[action_status],
+            "target_type": "prescription",
+            "target_id": prescription.id,
+            "target_label": f"Prescription #{prescription.id}",
+            "created_at": created_at,
+            "status": prescription.status,
+        }
+
+    def _report_row(self, report, action_key, created_at, actor):
+        action = (
+            "sign_quality_report_created"
+            if action_key == "created"
+            else f"sign_quality_report_{action_key}"
+        )
+        return {
+            "id": f"sign-quality-report-{report.id}-{action_key}",
+            "actor": actor,
+            "action": action,
+            "action_label": SIGN_QUALITY_ACTIVITY_LABELS[action_key],
+            "target_type": "sign_quality_report",
+            "target_id": report.id,
+            "target_label": f"Sign quality report #{report.id}",
+            "created_at": created_at,
+            "status": report.status,
+        }
+
+    def _build_rows(self):
+        rows = []
+        for prescription in self._scoped_prescriptions():
+            if prescription.submitted_at:
+                rows.append(
+                    self._prescription_row(
+                        prescription,
+                        PrescriptionStatusChoices.SUBMITTED,
+                        prescription.submitted_at,
+                    )
+                )
+            if prescription.delivered_at:
+                rows.append(
+                    self._prescription_row(
+                        prescription,
+                        PrescriptionStatusChoices.DELIVERED,
+                        prescription.delivered_at,
+                    )
+                )
+            if prescription.status in {
+                PrescriptionStatusChoices.CONFIRMED,
+                PrescriptionStatusChoices.CANCELLED,
+                PrescriptionStatusChoices.ARCHIVED,
+            }:
+                rows.append(
+                    self._prescription_row(
+                        prescription,
+                        prescription.status,
+                        prescription.updated_at,
+                    )
+                )
+
+        for report in self._scoped_reports():
+            rows.append(
+                self._report_row(
+                    report,
+                    "created",
+                    report.created_at,
+                    self._actor_from_patient(report.patient),
+                )
+            )
+            if report.status in {
+                SignQualityReport.STATUS_REVIEWED,
+                SignQualityReport.STATUS_RESOLVED,
+                SignQualityReport.STATUS_DISMISSED,
+            }:
+                rows.append(
+                    self._report_row(report, report.status, report.updated_at, None)
+                )
+        return rows
+
+    def _apply_filters(self, rows):
+        params = self.request.query_params
+        action = params.get("action")
+        target_type = params.get("target_type")
+        status_filter = params.get("status")
+        search = (params.get("search") or "").strip().lower()
+        date_from = parse_date(params.get("date_from") or "")
+        date_to = parse_date(params.get("date_to") or "")
+
+        if action:
+            rows = [row for row in rows if row["action"] == action]
+        if target_type:
+            rows = [row for row in rows if row["target_type"] == target_type]
+        if status_filter:
+            rows = [row for row in rows if row["status"] == status_filter]
+        if date_from:
+            rows = [row for row in rows if row["created_at"].date() >= date_from]
+        if date_to:
+            rows = [row for row in rows if row["created_at"].date() <= date_to]
+        if search:
+            rows = [
+                row
+                for row in rows
+                if search
+                in " ".join(
+                    [
+                        (row.get("actor") or {}).get("full_name") or "",
+                        row["target_label"],
+                        row["action_label"],
+                    ]
+                ).lower()
+            ]
+        return rows
+
+    def list(self, request, *args, **kwargs):
+        rows = self._apply_filters(self._build_rows())
+        rows.sort(key=lambda row: (row["created_at"], row["id"]), reverse=True)
+        page = self.paginate_queryset(rows)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(rows, many=True)
+        return Response(serializer.data)
 
 
 class AdminSignQualityReportViewSet(

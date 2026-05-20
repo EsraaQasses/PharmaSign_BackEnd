@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AdminActivityLogViewSet,
     AdminPrescriptionLogViewSet,
     AdminSignQualityReportViewSet,
     PatientPrescriptionViewSet,
@@ -66,9 +67,8 @@ patient_sign_quality_report = PatientSignQualityReportViewSet.as_view(
 )
 admin_prescription_logs = AdminPrescriptionLogViewSet.as_view({"get": "list"})
 admin_prescription_log_detail = AdminPrescriptionLogViewSet.as_view({"get": "retrieve"})
-admin_sign_quality_reports = AdminSignQualityReportViewSet.as_view(
-    {"get": "list"}
-)
+admin_activity_log = AdminActivityLogViewSet.as_view({"get": "list"})
+admin_sign_quality_reports = AdminSignQualityReportViewSet.as_view({"get": "list"})
 admin_sign_quality_report_detail = AdminSignQualityReportViewSet.as_view(
     {"get": "retrieve", "patch": "partial_update"}
 )
@@ -89,6 +89,11 @@ urlpatterns = [
         "admin/prescription-logs/<int:pk>/",
         admin_prescription_log_detail,
         name="admin-prescription-log-detail",
+    ),
+    path(
+        "admin/activity-log/",
+        admin_activity_log,
+        name="admin-activity-log",
     ),
     path(
         "admin/sign-quality-reports/",
