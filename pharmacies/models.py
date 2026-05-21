@@ -12,36 +12,43 @@ class Pharmacy(TimeStampedModel):
     owner_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        related_name='owned_pharmacies',
+        related_name="owned_pharmacies",
         null=True,
         blank=True,
     )
     address = models.CharField(max_length=255)
     city = models.CharField(max_length=100, blank=True, default="")
     region = models.CharField(max_length=100, blank=True, default="")
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    license_number = models.CharField(max_length=100, blank=True, default="")
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True
+    )
     is_contracted_with_organization = models.BooleanField(default=False)
     organization = models.ForeignKey(
         Organization,
         on_delete=models.SET_NULL,
-        related_name='pharmacies',
+        related_name="pharmacies",
         null=True,
         blank=True,
     )
     phone_number = models.CharField(max_length=20, blank=True)
 
     class Meta:
-        ordering = ('name',)
+        ordering = ("name",)
         indexes = [
-            models.Index(fields=['organization', 'is_contracted_with_organization']),
-            models.Index(fields=['name']),
+            models.Index(fields=["organization", "is_contracted_with_organization"]),
+            models.Index(fields=["name"]),
         ]
 
     def clean(self):
         if self.is_contracted_with_organization and not self.organization_id:
             raise ValidationError(
-                {'organization': 'Contracted pharmacies must be linked to an organization.'}
+                {
+                    "organization": "Contracted pharmacies must be linked to an organization."
+                }
             )
 
     def save(self, *args, **kwargs):
@@ -56,27 +63,29 @@ class PharmacistProfile(TimeStampedModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='pharmacist_profile',
+        related_name="pharmacist_profile",
     )
     pharmacy = models.ForeignKey(
         Pharmacy,
         on_delete=models.CASCADE,
-        related_name='pharmacists',
+        related_name="pharmacists",
     )
     full_name = models.CharField(max_length=255)
     license_number = models.CharField(max_length=100, blank=True)
     is_approved = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ('full_name',)
+        ordering = ("full_name",)
         indexes = [
-            models.Index(fields=['pharmacy']),
-            models.Index(fields=['is_approved']),
+            models.Index(fields=["pharmacy"]),
+            models.Index(fields=["is_approved"]),
         ]
 
     def clean(self):
         if self.user_id and self.user.role != RoleChoices.PHARMACIST:
-            raise ValidationError({'user': 'Pharmacist profile requires a pharmacist user.'})
+            raise ValidationError(
+                {"user": "Pharmacist profile requires a pharmacist user."}
+            )
 
     def save(self, *args, **kwargs):
         self.full_clean()

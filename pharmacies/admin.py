@@ -9,11 +9,12 @@ class PharmacyAdmin(admin.ModelAdmin):
         'name',
         'organization',
         'is_contracted_with_organization',
+        'license_number',
         'phone_number',
         'created_at',
     )
     list_filter = ('is_contracted_with_organization', 'organization')
-    search_fields = ('name', 'address', 'phone_number')
+    search_fields = ('name', 'address', 'phone_number', 'license_number')
     autocomplete_fields = ('owner_user', 'organization')
 
 

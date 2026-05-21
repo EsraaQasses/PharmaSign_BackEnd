@@ -1,18 +1,13 @@
 from django.db.models import Count, Q
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
 
 from common.api_errors import validation_error_payload
 from common.choices import RoleChoices
-from common.permissions import (
-    CanManagePharmacists,
-    IsPharmacistRole,
-    IsPatientRole,
-)
+from common.permissions import CanManagePharmacists, IsPatientRole, IsPharmacistRole
 
 from .models import PharmacistProfile, Pharmacy
 from .serializers import (

@@ -61,7 +61,6 @@ class PharmacySerializer(serializers.ModelSerializer):
 
 
 class AdminPharmacySerializer(serializers.ModelSerializer):
-    license_number = serializers.SerializerMethodField()
     pharmacists_count = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
@@ -88,9 +87,6 @@ class AdminPharmacySerializer(serializers.ModelSerializer):
             "organization",
         )
         read_only_fields = fields
-
-    def get_license_number(self, obj):
-        return None
 
     def get_pharmacists_count(self, obj):
         if hasattr(obj, "pharmacists_count"):
@@ -126,6 +122,7 @@ class AdminPharmacyWriteSerializer(serializers.ModelSerializer):
             "address",
             "city",
             "region",
+            "license_number",
             "latitude",
             "longitude",
             "is_contracted_with_organization",

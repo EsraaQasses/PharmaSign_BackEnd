@@ -193,6 +193,9 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
             name="Phase C Pharmacy",
             address="Phase C Address",
             phone_number="0111000",
+            city="دمشق",
+            region="المزة",
+            license_number="PHARM-LIC-001",
             latitude="33.513800",
             longitude="36.276500",
             organization=self.organization,
@@ -227,9 +230,9 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         pharmacy = response.data["results"][0]
         self.assertEqual(pharmacy["id"], self.pharmacy.id)
         self.assertEqual(pharmacy["pharmacists_count"], 1)
-        self.assertEqual(pharmacy["city"], "")
-        self.assertEqual(pharmacy["region"], "")
-        self.assertIsNone(pharmacy["license_number"])
+        self.assertEqual(pharmacy["city"], "دمشق")
+        self.assertEqual(pharmacy["region"], "المزة")
+        self.assertEqual(pharmacy["license_number"], "PHARM-LIC-001")
         self.assertIsNone(pharmacy["status"])
         self.assertIsNone(pharmacy["notes"])
 
@@ -253,9 +256,9 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
                 "longitude": "36.200000",
                 "is_contracted_with_organization": True,
                 "organization": self.organization.id,
-                "city": "Unsupported City",
-                "region": "Unsupported Region",
-                "license_number": "UNSUPPORTED",
+                "city": "دمشق",
+                "region": "المزة",
+                "license_number": "LIC-123",
                 "notes": "Unsupported notes",
             },
             format="json",
@@ -264,12 +267,12 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         created = Pharmacy.objects.get(name="Created Pharmacy")
         self.assertEqual(created.phone_number, "0112222")
-        self.assertEqual(created.city, "Unsupported City")
-        self.assertEqual(created.region, "Unsupported Region")
-        self.assertFalse(hasattr(created, "license_number"))
-        self.assertEqual(response.data["city"], "Unsupported City")
-        self.assertEqual(response.data["region"], "Unsupported Region")
-        self.assertIsNone(response.data["license_number"])
+        self.assertEqual(created.city, "دمشق")
+        self.assertEqual(created.region, "المزة")
+        self.assertEqual(created.license_number, "LIC-123")
+        self.assertEqual(response.data["city"], "دمشق")
+        self.assertEqual(response.data["region"], "المزة")
+        self.assertEqual(response.data["license_number"], "LIC-123")
         self.assertIsNone(response.data["notes"])
 
     def test_admin_can_patch_pharmacy_existing_fields(self):
@@ -286,6 +289,7 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
                 "is_contracted_with_organization": False,
                 "city": "Unsupported City",
                 "region": "Unsupported Region",
+                "license_number": "LIC-999",
                 "status": "active",
             },
             format="json",
@@ -297,10 +301,12 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertEqual(self.pharmacy.phone_number, "0113333")
         self.assertEqual(self.pharmacy.city, "Unsupported City")
         self.assertEqual(self.pharmacy.region, "Unsupported Region")
+        self.assertEqual(self.pharmacy.license_number, "LIC-999")
         self.assertFalse(self.pharmacy.is_contracted_with_organization)
         self.assertFalse(hasattr(self.pharmacy, "status"))
         self.assertEqual(response.data["city"], "Unsupported City")
         self.assertEqual(response.data["region"], "Unsupported Region")
+        self.assertEqual(response.data["license_number"], "LIC-999")
         self.assertIsNone(response.data["status"])
 
     def test_admin_can_retrieve_pharmacy_detail(self):
@@ -315,6 +321,7 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertEqual(response.data["organization"]["id"], self.organization.id)
         self.assertEqual(response.data["city"], self.pharmacy.city)
         self.assertEqual(response.data["region"], self.pharmacy.region)
+        self.assertEqual(response.data["license_number"], self.pharmacy.license_number)
         self.assertEqual(response.data["pharmacists_count"], 1)
 
     def test_admin_can_delete_unlinked_pharmacy_and_blocks_linked_pharmacy(self):
@@ -358,6 +365,7 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
                 "address": "Damascus",
                 "city": "Damascus",
                 "region": "Mazza",
+                "license_number": "STAFF-LIC-123",
                 "latitude": "33.500000",
                 "longitude": "36.300000",
                 "is_contracted_with_organization": True,
@@ -371,7 +379,9 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertTrue(created.is_contracted_with_organization)
         self.assertEqual(created.city, "Damascus")
         self.assertEqual(created.region, "Mazza")
+        self.assertEqual(created.license_number, "STAFF-LIC-123")
         self.assertEqual(response.data["organization"]["id"], self.organization.id)
+        self.assertEqual(response.data["license_number"], "STAFF-LIC-123")
 
     def test_organization_staff_updates_unassigned_pharmacy_to_contracted(self):
         staff_user = User.objects.create_user(
@@ -404,7 +414,7 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.assertEqual(pharmacy.organization, self.organization)
         self.assertEqual(response.data["organization"]["id"], self.organization.id)
 
-    def test_organization_staff_patches_pharmacy_city_and_region(self):
+    def test_organization_staff_patches_pharmacy_city_region_and_license_number(self):
         staff_user = User.objects.create_user(
             email="phasec.orgstaff.location@example.com",
             password="StrongPass123!",
@@ -420,7 +430,7 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
 
         response = self.client.patch(
             reverse("admin-pharmacy-detail", kwargs={"pk": self.pharmacy.id}),
-            {"city": "Damascus", "region": "Mazza"},
+            {"city": "Damascus", "region": "Mazza", "license_number": "LIC-999"},
             format="json",
         )
 
@@ -428,8 +438,10 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         self.pharmacy.refresh_from_db()
         self.assertEqual(self.pharmacy.city, "Damascus")
         self.assertEqual(self.pharmacy.region, "Mazza")
+        self.assertEqual(self.pharmacy.license_number, "LIC-999")
         self.assertEqual(response.data["city"], "Damascus")
         self.assertEqual(response.data["region"], "Mazza")
+        self.assertEqual(response.data["license_number"], "LIC-999")
 
     def test_organization_staff_cannot_assign_another_organization(self):
         other_organization = Organization.objects.create(name="Other Phase C Org")
@@ -532,7 +544,9 @@ class AdminPharmacyPhaseCApiTests(APITestCase):
         created = Pharmacy.objects.get(name="Org Staff Non Contracted Pharmacy")
         self.assertIsNone(created.organization)
         self.assertFalse(created.is_contracted_with_organization)
+        self.assertEqual(created.license_number, "")
         self.assertIsNone(response.data["organization"])
+        self.assertEqual(response.data["license_number"], "")
 
     def test_organization_staff_list_is_scoped_to_own_organization(self):
         other_organization = Organization.objects.create(name="Other List Org")
