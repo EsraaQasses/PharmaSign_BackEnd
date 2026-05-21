@@ -1699,6 +1699,177 @@ class AdminPhaseAApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["code"], "admin_access_required")
 
+    def test_admin_can_change_password_through_admin_endpoint(self):
+        admin_user = self.create_user(
+            "admin.change.password@example.com",
+            RoleChoices.ADMIN,
+            password="OldStrongPass123!",
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "OldStrongPass123!",
+                "new_password": "NewStrongPass123!",
+                "confirm_password": "NewStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"detail": "Password changed successfully."})
+        admin_user.refresh_from_db()
+        self.assertFalse(admin_user.check_password("OldStrongPass123!"))
+        self.assertTrue(admin_user.check_password("NewStrongPass123!"))
+        self.assertNotIn("user", response.data)
+        self.assertNotIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
+        self.assertNotIn("password", response.data)
+
+    def test_superuser_can_change_password_through_admin_endpoint(self):
+        superuser = User.objects.create_superuser(
+            email="admin.change.superuser@example.com",
+            password="OldStrongPass123!",
+        )
+        self.client.force_authenticate(superuser)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "OldStrongPass123!",
+                "new_password": "NewStrongPass123!",
+                "confirm_password": "NewStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        superuser.refresh_from_db()
+        self.assertTrue(superuser.check_password("NewStrongPass123!"))
+
+    def test_patient_and_pharmacist_cannot_use_admin_change_password(self):
+        patient_user = self.create_user(
+            "admin.change.patient@example.com",
+            RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Change Patient")
+        pharmacist_user = self.create_user(
+            "admin.change.pharmacist@example.com",
+            RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(name="Change Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Change Pharmacist",
+            is_approved=True,
+        )
+
+        for user in (patient_user, pharmacist_user):
+            self.client.force_authenticate(user)
+            response = self.client.post(
+                reverse("accounts:admin_change_password"),
+                {
+                    "current_password": "StrongPass123!",
+                    "new_password": "NewStrongPass123!",
+                    "confirm_password": "NewStrongPass123!",
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.data["code"], "admin_access_required")
+
+    def test_admin_change_password_rejects_incorrect_current_password(self):
+        admin_user = self.create_user(
+            "admin.change.incorrect@example.com",
+            RoleChoices.ADMIN,
+            password="OldStrongPass123!",
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "WrongStrongPass123!",
+                "new_password": "NewStrongPass123!",
+                "confirm_password": "NewStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "current_password_incorrect")
+
+    def test_admin_change_password_rejects_password_mismatch(self):
+        admin_user = self.create_user(
+            "admin.change.mismatch@example.com",
+            RoleChoices.ADMIN,
+            password="OldStrongPass123!",
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "OldStrongPass123!",
+                "new_password": "NewStrongPass123!",
+                "confirm_password": "DifferentStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "passwords_do_not_match")
+
+    def test_admin_change_password_rejects_weak_password(self):
+        admin_user = self.create_user(
+            "admin.change.weak@example.com",
+            RoleChoices.ADMIN,
+            password="OldStrongPass123!",
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "OldStrongPass123!",
+                "new_password": "123",
+                "confirm_password": "123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "password_too_weak")
+        self.assertIn("new_password", response.data["fields"])
+
+    def test_admin_change_password_rejects_same_password(self):
+        admin_user = self.create_user(
+            "admin.change.same@example.com",
+            RoleChoices.ADMIN,
+            password="OldStrongPass123!",
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin_user)
+
+        response = self.client.post(
+            reverse("accounts:admin_change_password"),
+            {
+                "current_password": "OldStrongPass123!",
+                "new_password": "OldStrongPass123!",
+                "confirm_password": "OldStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "password_same_as_old")
+
     def test_admin_user_can_call_dashboard_stats_with_expected_keys(self):
         admin_user = self.create_user(
             "dashboard.admin@example.com",

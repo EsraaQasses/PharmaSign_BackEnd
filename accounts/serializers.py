@@ -1,18 +1,22 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from accounts.authentication import (
     PENDING_ACCOUNT_DETAIL as AUTH_PENDING_ACCOUNT_DETAIL,
+)
+from accounts.authentication import (
     REJECTED_ACCOUNT_DETAIL as AUTH_REJECTED_ACCOUNT_DETAIL,
 )
 from common.choices import ApprovalStatusChoices, RoleChoices
 from common.utils import verify_pin
 from patients.models import PatientMedicalInfo, PatientProfile
 from patients.services import assign_patient_qr_code, get_patient_by_login_qr_token
+
 from .models import PhoneOTP
 from .services import (
     OTP_EXPIRY_SECONDS,
@@ -265,18 +269,52 @@ class ChangePasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
 
-    def validate_current_password(self, value):
-        user = self.context["request"].user
-        if not user.check_password(value):
-            raise serializers.ValidationError(_("Current password is incorrect."))
-        return value
-
     def validate(self, attrs):
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {
+                    "detail": "Current password is incorrect.",
+                    "code": "current_password_incorrect",
+                    "fields": {
+                        "current_password": "Current password is incorrect.",
+                    },
+                }
+            )
         if attrs["new_password"] != attrs["confirm_password"]:
             raise serializers.ValidationError(
-                {"confirm_password": _("New password and confirmation do not match.")}
+                {
+                    "detail": "New password and confirmation do not match.",
+                    "code": "passwords_do_not_match",
+                    "fields": {
+                        "confirm_password": (
+                            "New password and confirmation do not match."
+                        ),
+                    },
+                }
             )
-        validate_password(attrs["new_password"], self.context["request"].user)
+        if attrs["new_password"] == attrs["current_password"]:
+            raise serializers.ValidationError(
+                {
+                    "detail": "New password must be different from current password.",
+                    "code": "password_same_as_old",
+                    "fields": {
+                        "new_password": (
+                            "New password must be different from current password."
+                        ),
+                    },
+                }
+            )
+        try:
+            validate_password(attrs["new_password"], user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                {
+                    "detail": "Password is too weak.",
+                    "code": "password_too_weak",
+                    "fields": {"new_password": list(exc.messages)},
+                }
+            )
         return attrs
 
     def save(self, **kwargs):
@@ -313,7 +351,9 @@ class AdminAuthMeSerializer(serializers.Serializer):
 class AdminApprovalRequestSerializer(serializers.Serializer):
     def to_representation(self, user):
         include_detail = self.context.get("include_detail", False)
-        details = self._build_detail(user) if include_detail else self._build_summary(user)
+        details = (
+            self._build_detail(user) if include_detail else self._build_summary(user)
+        )
         payload = {
             "id": user.id,
             "user_id": user.id,
@@ -381,9 +421,7 @@ class AdminApprovalRequestSerializer(serializers.Serializer):
                 "address": patient_profile.address,
                 "city": patient_profile.city,
                 "region": patient_profile.region,
-                "hearing_disability_level": (
-                    patient_profile.hearing_disability_level
-                ),
+                "hearing_disability_level": (patient_profile.hearing_disability_level),
                 "hearing_condition_type": patient_profile.hearing_condition_type,
                 "hearing_condition_type_display": (
                     patient_profile.get_hearing_condition_type_display()

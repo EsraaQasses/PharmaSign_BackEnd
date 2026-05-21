@@ -811,6 +811,23 @@ class AuthViewSet(viewsets.ViewSet):
         serializer.save()
         return Response({"detail": "Password changed successfully"})
 
+    @action(detail=False, methods=["post"], url_path="admin/auth/change-password")
+    def admin_change_password(self, request):
+        admin_response = self._ensure_admin_response(request.user)
+        if admin_response:
+            return admin_response
+        serializer = ChangePasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer.save()
+        return Response({"detail": "Password changed successfully."})
+
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
         return Response(AuthMeSerializer(request.user).data)

@@ -1,7 +1,7 @@
 from django.urls import path
+
 from .jwt import ApprovalAwareTokenRefreshView
 from .views import AuthViewSet
-
 
 app_name = "accounts"
 
@@ -38,6 +38,11 @@ urlpatterns = [
         "admin/auth/logout/",
         auth_viewset({"post": "admin_logout"}),
         name="admin_logout",
+    ),
+    path(
+        "admin/auth/change-password/",
+        auth_viewset({"post": "admin_change_password"}),
+        name="admin_change_password",
     ),
     path(
         "admin/dashboard/stats/",
@@ -105,6 +110,8 @@ urlpatterns = [
         auth_viewset({"post": "change_password"}),
         name="change_password",
     ),
-    path("auth/refresh/", ApprovalAwareTokenRefreshView.as_view(), name="token_refresh"),
+    path(
+        "auth/refresh/", ApprovalAwareTokenRefreshView.as_view(), name="token_refresh"
+    ),
     path("auth/me/", auth_viewset({"get": "me"}), name="me"),
 ]
