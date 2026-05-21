@@ -1,11 +1,12 @@
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import (
     AbstractBaseUser,
-    PermissionsMixin,
     BaseUserManager,
+    PermissionsMixin,
 )
-from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
+
 from common.choices import ApprovalStatusChoices, RoleChoices
 from common.models import TimeStampedModel
 
@@ -79,9 +80,13 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
 class PhoneOTP(TimeStampedModel):
     PURPOSE_PATIENT_REGISTER = "patient_register"
     PURPOSE_PHARMACIST_REGISTER = "pharmacist_register"
+    PURPOSE_PATIENT_PASSWORD_RESET = "patient_password_reset"
+    PURPOSE_PHARMACIST_PASSWORD_RESET = "pharmacist_password_reset"
     PURPOSE_CHOICES = (
         (PURPOSE_PATIENT_REGISTER, "Patient registration"),
         (PURPOSE_PHARMACIST_REGISTER, "Pharmacist registration"),
+        (PURPOSE_PATIENT_PASSWORD_RESET, "Patient password reset"),
+        (PURPOSE_PHARMACIST_PASSWORD_RESET, "Pharmacist password reset"),
     )
 
     phone_number = models.CharField(max_length=20, db_index=True)

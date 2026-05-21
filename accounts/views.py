@@ -38,6 +38,9 @@ from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestOTPSerializer,
+    PatientInitialPasswordSerializer,
     PatientQRLoginSerializer,
     PatientRegistrationOTPRequestSerializer,
     PatientSelfRegisterSerializer,
@@ -65,6 +68,8 @@ class AuthViewSet(viewsets.ViewSet):
             "pharmacist_register_request_otp",
             "register_request_otp",
             "patient_qr_login",
+            "password_reset_request_otp",
+            "password_reset_confirm",
         }:
             permission_classes = [AllowAny]
         else:
@@ -649,7 +654,61 @@ class AuthViewSet(viewsets.ViewSet):
         blocked_response = self._approval_block_response(user)
         if blocked_response:
             return blocked_response
-        return self._build_auth_response(user)
+        response = self._build_auth_response(user)
+        response.data["must_set_password"] = not user.has_usable_password()
+        return response
+
+    @action(detail=False, methods=["post"], url_path="patient/set-initial-password")
+    def patient_set_initial_password(self, request):
+        if request.user.role != RoleChoices.PATIENT:
+            return Response(
+                {
+                    "detail": "Patient access is required.",
+                    "code": "patient_access_required",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = PatientInitialPasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer.save()
+        return Response({"detail": "Password set successfully."})
+
+    @action(detail=False, methods=["post"], url_path="password-reset/request-otp")
+    def password_reset_request_otp(self, request):
+        serializer = PasswordResetRequestOTPSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return Response(serializer.save())
+        except OTPDeliveryError as exc:
+            return self._otp_delivery_failed_response(exc)
+        except ValidationError as exc:
+            return Response(
+                validation_error_payload(exc.detail),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=False, methods=["post"], url_path="password-reset/confirm")
+    def password_reset_confirm(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                validation_error_payload(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = serializer.save()
+        self._blacklist_user_tokens(user)
+        return Response({"detail": "Password reset successfully."})
 
     @action(detail=False, methods=["get"], url_path="admin/registration-requests")
     def registration_requests(self, request):

@@ -70,6 +70,21 @@ urlpatterns = [
         name="patient_qr_login",
     ),
     path(
+        "auth/patient/set-initial-password/",
+        auth_viewset({"post": "patient_set_initial_password"}),
+        name="patient_set_initial_password",
+    ),
+    path(
+        "auth/password-reset/request-otp/",
+        auth_viewset({"post": "password_reset_request_otp"}),
+        name="password_reset_request_otp",
+    ),
+    path(
+        "auth/password-reset/confirm/",
+        auth_viewset({"post": "password_reset_confirm"}),
+        name="password_reset_confirm",
+    ),
+    path(
         "admin/registration-requests/",
         auth_viewset({"get": "registration_requests"}),
         name="registration_requests",

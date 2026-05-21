@@ -3,7 +3,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from accounts.authentication import (
@@ -20,8 +19,11 @@ from patients.services import assign_patient_qr_code, get_patient_by_login_qr_to
 from .models import PhoneOTP
 from .services import (
     OTP_EXPIRY_SECONDS,
+    generate_password_reset_otp,
     generate_registration_otp,
+    password_reset_purpose_for_role,
     registration_purpose_for_role,
+    validate_password_reset_otp,
     validate_registration_otp,
 )
 
@@ -264,6 +266,19 @@ class PatientRegistrationOTPRequestSerializer(RegistrationOTPRequestSerializer):
         return super().validate(attrs)
 
 
+def validate_new_password_strength(password, user):
+    try:
+        validate_password(password, user)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(
+            {
+                "detail": "Password is too weak.",
+                "code": "password_too_weak",
+                "fields": {"new_password": list(exc.messages)},
+            }
+        )
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)
@@ -305,22 +320,150 @@ class ChangePasswordSerializer(serializers.Serializer):
                     },
                 }
             )
-        try:
-            validate_password(attrs["new_password"], user)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(
-                {
-                    "detail": "Password is too weak.",
-                    "code": "password_too_weak",
-                    "fields": {"new_password": list(exc.messages)},
-                }
-            )
+        validate_new_password_strength(attrs["new_password"], user)
         return attrs
 
     def save(self, **kwargs):
         user = self.context["request"].user
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password", "updated_at"])
+        return user
+
+
+class PatientInitialPasswordSerializer(serializers.Serializer):
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if user.has_usable_password():
+            raise serializers.ValidationError(
+                {
+                    "detail": "Password has already been set.",
+                    "code": "password_already_set",
+                }
+            )
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {
+                    "detail": "New password and confirmation do not match.",
+                    "code": "passwords_do_not_match",
+                    "fields": {
+                        "confirm_password": (
+                            "New password and confirmation do not match."
+                        ),
+                    },
+                }
+            )
+        validate_new_password_strength(attrs["new_password"], user)
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.context["request"].user
+        user.set_password(self.validated_data["new_password"])
+        if not user.is_verified:
+            user.is_verified = True
+            user.save(update_fields=["password", "is_verified", "updated_at"])
+        else:
+            user.save(update_fields=["password", "updated_at"])
+        return user
+
+
+class PasswordResetRequestOTPSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=("patient", "pharmacist"))
+    phone_number = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    def validate(self, attrs):
+        phone_number = attrs.get("phone_number") or attrs.get("phone")
+        if not phone_number:
+            raise serializers.ValidationError(
+                {
+                    "detail": "Phone number is required.",
+                    "code": "missing_required_field",
+                    "fields": {"phone_number": "This field is required."},
+                }
+            )
+        attrs["phone_number"] = phone_number
+        attrs["purpose"] = password_reset_purpose_for_role(attrs["role"])
+        return attrs
+
+    def save(self, **kwargs):
+        phone_number = self.validated_data["phone_number"]
+        role = self.validated_data["role"]
+        user = User.objects.filter(
+            phone_number=phone_number,
+            role=role,
+            is_active=True,
+        ).first()
+        payload = {
+            "detail": "If the account exists, a password reset code has been sent."
+        }
+        if user is None:
+            return payload
+        otp, _challenge, _delivery = generate_password_reset_otp(
+            phone_number,
+            self.validated_data["purpose"],
+            user,
+        )
+        if settings.DEBUG:
+            payload["debug_otp"] = otp
+        return payload
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=("patient", "pharmacist"))
+    phone_number = serializers.CharField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    otp = serializers.CharField(write_only=True, min_length=6, max_length=6)
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        phone_number = attrs.get("phone_number") or attrs.get("phone")
+        if not phone_number:
+            raise serializers.ValidationError(
+                {
+                    "detail": "Phone number is required.",
+                    "code": "missing_required_field",
+                    "fields": {"phone_number": "This field is required."},
+                }
+            )
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {
+                    "detail": "New password and confirmation do not match.",
+                    "code": "passwords_do_not_match",
+                    "fields": {
+                        "confirm_password": (
+                            "New password and confirmation do not match."
+                        ),
+                    },
+                }
+            )
+        role = attrs["role"]
+        purpose = password_reset_purpose_for_role(role)
+        challenge = validate_password_reset_otp(phone_number, attrs["otp"], purpose)
+        user = User.objects.filter(
+            phone_number=phone_number,
+            role=role,
+            is_active=True,
+        ).first()
+        if user is None or (challenge.user_id and challenge.user_id != user.id):
+            raise serializers.ValidationError(
+                {"detail": "Invalid OTP.", "code": "invalid_otp"}
+            )
+        validate_new_password_strength(attrs["new_password"], user)
+        attrs["phone_number"] = phone_number
+        attrs["challenge"] = challenge
+        attrs["user"] = user
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data["user"]
+        user.set_password(self.validated_data["new_password"])
+        user.save(update_fields=["password", "updated_at"])
+        self.validated_data["challenge"].mark_used()
         return user
 
 

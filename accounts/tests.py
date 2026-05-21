@@ -1508,6 +1508,143 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
+        self.assertFalse(response.data["must_set_password"])
+
+    def test_patient_qr_login_with_unusable_password_requires_password_setup(self):
+        user = User.objects.create_user(
+            email="qr.no.password.patient@example.com",
+            password=None,
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        profile = PatientProfile.objects.create(
+            user=user,
+            full_name="QR No Password Patient",
+            qr_code_value="qr-no-password-token",
+            qr_is_active=True,
+        )
+        profile.set_record_access_pin("1234")
+        profile.save(update_fields=["record_access_pin_hash", "updated_at"])
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {
+                "qr_code_value": "qr-no-password-token",
+                "pin": "1234",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertTrue(response.data["must_set_password"])
+
+    def test_patient_with_unusable_password_can_set_initial_password(self):
+        user = User.objects.create_user(
+            email="initial.password.patient@example.com",
+            password=None,
+            phone_number="5557060",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+        )
+        PatientProfile.objects.create(user=user, full_name="Initial Password Patient")
+        self.client.force_authenticate(user)
+
+        response = self.client.post(
+            reverse("accounts:patient_set_initial_password"),
+            {
+                "new_password": "InitialStrongPass123!",
+                "confirm_password": "InitialStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {"detail": "Password set successfully."})
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("InitialStrongPass123!"))
+
+        self.client.force_authenticate(None)
+        login_response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "phone_number": "5557060",
+                "password": "InitialStrongPass123!",
+            },
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", login_response.data)
+
+    def test_set_initial_password_validation_and_permissions(self):
+        user = User.objects.create_user(
+            email="initial.validation.patient@example.com",
+            password=None,
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=user, full_name="Initial Validation Patient")
+        self.client.force_authenticate(user)
+
+        mismatch = self.client.post(
+            reverse("accounts:patient_set_initial_password"),
+            {"new_password": "StrongPass123!", "confirm_password": "OtherPass123!"},
+            format="json",
+        )
+        weak = self.client.post(
+            reverse("accounts:patient_set_initial_password"),
+            {"new_password": "123", "confirm_password": "123"},
+            format="json",
+        )
+        self.assertEqual(mismatch.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mismatch.data["code"], "passwords_do_not_match")
+        self.assertEqual(weak.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(weak.data["code"], "password_too_weak")
+
+        user.set_password("AlreadyStrongPass123!")
+        user.save(update_fields=["password", "updated_at"])
+        already_set = self.client.post(
+            reverse("accounts:patient_set_initial_password"),
+            {"new_password": "StrongPass123!", "confirm_password": "StrongPass123!"},
+            format="json",
+        )
+        self.assertEqual(already_set.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(already_set.data["code"], "password_already_set")
+
+        admin_user = User.objects.create_user(
+            email="initial.password.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            is_staff=True,
+        )
+        pharmacist_user = User.objects.create_user(
+            email="initial.password.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Initial Password Pharmacy",
+            address="Damascus",
+        )
+        PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Initial Password Pharmacist",
+        )
+        for forbidden_user in (admin_user, pharmacist_user):
+            self.client.force_authenticate(forbidden_user)
+            response = self.client.post(
+                reverse("accounts:patient_set_initial_password"),
+                {
+                    "new_password": "StrongPass123!",
+                    "confirm_password": "StrongPass123!",
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.data["code"], "patient_access_required")
 
     def test_pending_patient_qr_login_is_blocked(self):
         user = User.objects.create_user(
@@ -1572,6 +1709,341 @@ class AuthAndPatientFlowTests(APITestCase):
             change_response.data["detail"], "Password changed successfully"
         )
         self.assertEqual(logout_response.data["detail"], "Logged out successfully")
+
+    @override_settings(DEBUG=True)
+    def test_patient_password_reset_otp_request_and_confirm(self):
+        user = User.objects.create_user(
+            email="reset.patient@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557061",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+        )
+        PatientProfile.objects.create(user=user, full_name="Reset Patient")
+
+        request_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557061", "role": "patient"},
+            format="json",
+        )
+
+        self.assertEqual(request_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            request_response.data["detail"],
+            "If the account exists, a password reset code has been sent.",
+        )
+        self.assertIn("debug_otp", request_response.data)
+        challenge = PhoneOTP.objects.get(phone_number="5557061")
+        self.assertEqual(challenge.purpose, PhoneOTP.PURPOSE_PATIENT_PASSWORD_RESET)
+        self.assertEqual(challenge.user_id, user.id)
+
+        confirm_response = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557061",
+                "role": "patient",
+                "otp": request_response.data["debug_otp"],
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(confirm_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            confirm_response.data,
+            {"detail": "Password reset successfully."},
+        )
+        user.refresh_from_db()
+        self.assertFalse(user.check_password("OldStrongPass123!"))
+        self.assertTrue(user.check_password("NewResetStrongPass123!"))
+        challenge.refresh_from_db()
+        self.assertIsNotNone(challenge.used_at)
+
+        login_response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "phone_number": "5557061",
+                "password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+    @override_settings(DEBUG=True)
+    def test_pharmacist_password_reset_otp_request_and_confirm(self):
+        user = User.objects.create_user(
+            email="reset.pharmacist@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557062",
+            role=RoleChoices.PHARMACIST,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        pharmacy = Pharmacy.objects.create(name="Reset Pharmacy", address="Damascus")
+        PharmacistProfile.objects.create(
+            user=user,
+            pharmacy=pharmacy,
+            full_name="Reset Pharmacist",
+            is_approved=True,
+        )
+
+        request_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557062", "role": "pharmacist"},
+            format="json",
+        )
+        confirm_response = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557062",
+                "role": "pharmacist",
+                "otp": request_response.data["debug_otp"],
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(request_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(confirm_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            PhoneOTP.objects.get(phone_number="5557062").purpose,
+            PhoneOTP.PURPOSE_PHARMACIST_PASSWORD_RESET,
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("NewResetStrongPass123!"))
+
+    @override_settings(DEBUG=True)
+    def test_password_reset_request_does_not_reveal_missing_or_admin_accounts(self):
+        admin_user = User.objects.create_user(
+            email="reset.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+            phone_number="5557063",
+            is_staff=True,
+        )
+
+        missing_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557999", "role": "patient"},
+            format="json",
+        )
+        admin_as_patient_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557063", "role": "patient"},
+            format="json",
+        )
+
+        self.assertEqual(missing_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(admin_as_patient_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("debug_otp", missing_response.data)
+        self.assertNotIn("debug_otp", admin_as_patient_response.data)
+        self.assertFalse(PhoneOTP.objects.filter(phone_number="5557999").exists())
+        self.assertFalse(PhoneOTP.objects.filter(user=admin_user).exists())
+
+    @override_settings(DEBUG=True)
+    def test_password_reset_confirm_validation_errors(self):
+        user = User.objects.create_user(
+            email="reset.errors.patient@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557064",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=user, full_name="Reset Errors Patient")
+        request_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557064", "role": "patient"},
+            format="json",
+        )
+
+        wrong_otp = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557064",
+                "role": "patient",
+                "otp": "000000",
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+        mismatch = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557064",
+                "role": "patient",
+                "otp": request_response.data["debug_otp"],
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "DifferentResetStrongPass123!",
+            },
+            format="json",
+        )
+        weak = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557064",
+                "role": "patient",
+                "otp": request_response.data["debug_otp"],
+                "new_password": "123",
+                "confirm_password": "123",
+            },
+            format="json",
+        )
+
+        self.assertEqual(wrong_otp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(wrong_otp.data["code"], "invalid_otp")
+        self.assertEqual(mismatch.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mismatch.data["code"], "passwords_do_not_match")
+        self.assertEqual(weak.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(weak.data["code"], "password_too_weak")
+
+    @override_settings(DEBUG=True)
+    def test_password_reset_expired_locked_and_reused_otp(self):
+        expired_user = User.objects.create_user(
+            email="reset.expired.patient@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557065",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=expired_user,
+            full_name="Reset Expired Patient",
+        )
+        expired_request = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557065", "role": "patient"},
+            format="json",
+        )
+        expired_challenge = PhoneOTP.objects.get(phone_number="5557065")
+        expired_challenge.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        expired_challenge.save(update_fields=["expires_at", "updated_at"])
+        expired_response = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557065",
+                "role": "patient",
+                "otp": expired_request.data["debug_otp"],
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+
+        locked_user = User.objects.create_user(
+            email="reset.locked.patient@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557066",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=locked_user, full_name="Reset Locked Patient"
+        )
+        self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557066", "role": "patient"},
+            format="json",
+        )
+        locked_response = None
+        for _ in range(5):
+            locked_response = self.client.post(
+                reverse("accounts:password_reset_confirm"),
+                {
+                    "phone_number": "5557066",
+                    "role": "patient",
+                    "otp": "000000",
+                    "new_password": "NewResetStrongPass123!",
+                    "confirm_password": "NewResetStrongPass123!",
+                },
+                format="json",
+            )
+
+        reused_user = User.objects.create_user(
+            email="reset.reused.patient@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557067",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=reused_user, full_name="Reset Reused Patient"
+        )
+        reused_request = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557067", "role": "patient"},
+            format="json",
+        )
+        reset_payload = {
+            "phone_number": "5557067",
+            "role": "patient",
+            "otp": reused_request.data["debug_otp"],
+            "new_password": "NewResetStrongPass123!",
+            "confirm_password": "NewResetStrongPass123!",
+        }
+        first_use = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            reset_payload,
+            format="json",
+        )
+        second_use = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            reset_payload,
+            format="json",
+        )
+
+        self.assertEqual(expired_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(expired_response.data["code"], "otp_expired")
+        self.assertEqual(locked_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(locked_response.data["code"], "otp_locked")
+        self.assertEqual(first_use.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_use.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second_use.data["code"], "invalid_otp")
+
+    @override_settings(DEBUG=True)
+    def test_password_reset_role_isolation(self):
+        pharmacist_user = User.objects.create_user(
+            email="reset.role.pharmacist@example.com",
+            password="OldStrongPass123!",
+            phone_number="5557068",
+            role=RoleChoices.PHARMACIST,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Reset Role Pharmacy",
+            address="Damascus",
+        )
+        PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Reset Role Pharmacist",
+            is_approved=True,
+        )
+
+        request_response = self.client.post(
+            reverse("accounts:password_reset_request_otp"),
+            {"phone_number": "5557068", "role": "patient"},
+            format="json",
+        )
+        confirm_response = self.client.post(
+            reverse("accounts:password_reset_confirm"),
+            {
+                "phone_number": "5557068",
+                "role": "patient",
+                "otp": "123456",
+                "new_password": "NewResetStrongPass123!",
+                "confirm_password": "NewResetStrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(request_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("debug_otp", request_response.data)
+        self.assertEqual(confirm_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(confirm_response.data["code"], "invalid_otp")
+        pharmacist_user.refresh_from_db()
+        self.assertTrue(pharmacist_user.check_password("OldStrongPass123!"))
 
 
 class AdminPhaseAApiTests(APITestCase):
