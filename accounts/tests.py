@@ -1501,13 +1501,16 @@ class AuthAndPatientFlowTests(APITestCase):
             reverse("accounts:patient_qr_login"),
             {
                 "qr_code_value": "qr-login-token",
-                "pin": "1234",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertIn("user", response.data)
+        self.assertIn("profile", response.data)
+        self.assertIn("must_set_password", response.data)
         self.assertFalse(response.data["must_set_password"])
 
     def test_patient_qr_login_with_unusable_password_requires_password_setup(self):
@@ -1532,7 +1535,6 @@ class AuthAndPatientFlowTests(APITestCase):
             reverse("accounts:patient_qr_login"),
             {
                 "qr_code_value": "qr-no-password-token",
-                "pin": "1234",
             },
             format="json",
         )
@@ -1540,6 +1542,100 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
         self.assertTrue(response.data["must_set_password"])
+
+    def test_patient_qr_login_ignores_legacy_pin_when_qr_code_value_is_valid(self):
+        user = User.objects.create_user(
+            email="qr.wrong.pin.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        profile = PatientProfile.objects.create(
+            user=user,
+            full_name="QR Wrong PIN Patient",
+            qr_code_value="qr-wrong-pin-token",
+            qr_is_active=True,
+        )
+        profile.set_record_access_pin("1234")
+        profile.save(update_fields=["record_access_pin_hash", "updated_at"])
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {
+                "qr_code_value": "qr-wrong-pin-token",
+                "pin": "wrong-pin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertFalse(response.data["must_set_password"])
+
+    def test_disabled_static_qr_cannot_login(self):
+        user = User.objects.create_user(
+            email="qr.disabled.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        PatientProfile.objects.create(
+            user=user,
+            full_name="QR Disabled Patient",
+            qr_code_value="qr-disabled-token",
+            qr_is_active=False,
+        )
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {"qr_code_value": "qr-disabled-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Invalid QR code.")
+        self.assertEqual(response.data["code"][0], "invalid_qr_code")
+
+    def test_invalid_static_qr_cannot_login(self):
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {"qr_code_value": "not-a-valid-static-qr"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Invalid QR code.")
+        self.assertEqual(response.data["code"][0], "invalid_qr_code")
+
+    def test_inactive_patient_user_cannot_login_with_static_qr(self):
+        user = User.objects.create_user(
+            email="qr.inactive.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            is_active=False,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        PatientProfile.objects.create(
+            user=user,
+            full_name="QR Inactive Patient",
+            qr_code_value="qr-inactive-token",
+            qr_is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {"qr_code_value": "qr-inactive-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"][0], "Invalid QR code.")
+        self.assertEqual(response.data["code"][0], "invalid_qr_code")
 
     def test_patient_with_unusable_password_can_set_initial_password(self):
         user = User.objects.create_user(
@@ -1675,6 +1771,33 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.data["approval_status"], ApprovalStatusChoices.PENDING
+        )
+
+    def test_rejected_patient_qr_login_is_blocked(self):
+        user = User.objects.create_user(
+            email="qr.rejected.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+            is_active=True,
+            approval_status=ApprovalStatusChoices.REJECTED,
+            rejection_reason="Rejected for test",
+        )
+        PatientProfile.objects.create(
+            user=user,
+            full_name="QR Rejected Patient",
+            qr_code_value="qr-rejected-token",
+            qr_is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("accounts:patient_qr_login"),
+            {"qr_code_value": "qr-rejected-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.data["approval_status"], ApprovalStatusChoices.REJECTED
         )
 
     def test_logout_and_change_password_still_work(self):

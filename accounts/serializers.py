@@ -12,7 +12,6 @@ from accounts.authentication import (
     REJECTED_ACCOUNT_DETAIL as AUTH_REJECTED_ACCOUNT_DETAIL,
 )
 from common.choices import ApprovalStatusChoices, RoleChoices
-from common.utils import verify_pin
 from patients.models import PatientMedicalInfo, PatientProfile
 from patients.services import assign_patient_qr_code, get_patient_by_login_qr_token
 
@@ -625,27 +624,34 @@ class PatientQRLoginSerializer(serializers.Serializer):
             attrs["patient_profile"] = patient_profile
             return attrs
 
-        if attrs.get("qr_code_value") and attrs.get("pin"):
+        qr_code_value = attrs.get("qr_code_value")
+        if qr_code_value:
             try:
                 patient_profile = PatientProfile.objects.select_related("user").get(
-                    qr_code_value=attrs["qr_code_value"],
+                    qr_code_value=qr_code_value,
                     qr_is_active=True,
                 )
             except PatientProfile.DoesNotExist:
-                raise serializers.ValidationError({"detail": "Invalid QR code or PIN."})
+                raise serializers.ValidationError(
+                    {"detail": "Invalid QR code.", "code": "invalid_qr_code"}
+                )
 
             user = patient_profile.user
             if user.role != RoleChoices.PATIENT or not user.is_active:
-                raise serializers.ValidationError({"detail": "Invalid QR code or PIN."})
-
-            if not verify_pin(attrs["pin"], patient_profile.record_access_pin_hash):
-                raise serializers.ValidationError({"detail": "Invalid QR code or PIN."})
+                raise serializers.ValidationError(
+                    {"detail": "Invalid QR code.", "code": "invalid_qr_code"}
+                )
 
             attrs["user"] = user
             attrs["patient_profile"] = patient_profile
             return attrs
 
-        raise serializers.ValidationError({"detail": "QR token is required."})
+        raise serializers.ValidationError(
+            {
+                "detail": "QR token or QR code value is required.",
+                "code": "missing_qr_credentials",
+            }
+        )
 
 
 class PatientSelfRegisterSerializer(serializers.Serializer):
