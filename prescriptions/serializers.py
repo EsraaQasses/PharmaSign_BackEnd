@@ -146,6 +146,10 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
             "supporting_text",
             "sign_status",
             "is_confirmed",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
             "created_at",
             "updated_at",
         )
@@ -200,6 +204,10 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
             "supporting_text",
             "sign_status",
             "is_confirmed",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
             "created_at",
             "updated_at",
         )
@@ -228,6 +236,10 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
             "sign_status",
             "sign_language_video",
             "video_url",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
         )
         read_only_fields = fields
 
@@ -282,6 +294,10 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
             "supporting_text",
             "sign_status",
             "is_confirmed",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
         )
         read_only_fields = ("line_total",)
 
@@ -339,6 +355,10 @@ class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
             "supporting_text",
             "sign_status",
             "is_confirmed",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
         )
         read_only_fields = ("line_total",)
 
@@ -488,6 +508,10 @@ class AdminPrescriptionLogItemSerializer(serializers.ModelSerializer):
             "raw_transcript",
             "edited_transcript",
             "sign_video_url",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
         )
         read_only_fields = fields
 
@@ -752,6 +776,10 @@ class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
             "sign_status",
             "sign_language_video",
             "video_url",
+            "pose_file_path",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
         )
         read_only_fields = fields
 

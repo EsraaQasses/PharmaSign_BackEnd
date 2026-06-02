@@ -87,6 +87,7 @@ LOCAL_APPS = [
     "pharmacies",
     "prescriptions",
     "transcriptions",
+    "ai_integration",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -295,3 +296,9 @@ SIMPLE_JWT = {
     ),
     "ROTATE_REFRESH_TOKENS": True,
 }
+
+# AI Gloss-to-Pose FastAPI Service Configuration
+AI_SERVICE_URL = config("AI_SERVICE_URL", default="http://127.0.0.1:8002")
+AI_SERVICE_API_KEY = config("AI_SERVICE_API_KEY", default="")
+AI_SERVICE_TIMEOUT = config("AI_SERVICE_TIMEOUT", default=60, cast=int)
+

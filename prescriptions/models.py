@@ -164,6 +164,10 @@ class PrescriptionItem(TimeStampedModel):
         default=SignStatusChoices.PENDING,
     )
     is_confirmed = models.BooleanField(default=False)
+    pose_file_path = models.CharField(max_length=500, blank=True, default="")
+    pose_shape = models.JSONField(null=True, blank=True)
+    ai_metadata = models.JSONField(null=True, blank=True)
+    pose_generated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("created_at",)

@@ -15,6 +15,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ai_integration.exceptions import AIPoseGenerationError
+from ai_integration.services import generate_pose_from_gloss
 from common.choices import (
     PrescriptionAccessTypeChoices,
     PrescriptionStatusChoices,
@@ -841,7 +843,77 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        mark_prescription_item_sign_completed(item, result["gloss_text"])
+        gloss_text = result["gloss_text"]
+        item.supporting_text = gloss_text
+        item.save(update_fields=["supporting_text", "updated_at"])
+
+        # Chained step: Gloss-to-Pose generation
+        try:
+            pose_result = generate_pose_from_gloss(gloss_text, return_format="npy")
+            item.pose_file_path = pose_result.get("file_path", "")
+            item.pose_shape = pose_result.get("pose_shape")
+            item.ai_metadata = pose_result.get("metadata", {})
+            item.pose_generated_at = timezone.now()
+            item.sign_status = SignStatusChoices.COMPLETED
+            item.save(
+                update_fields=[
+                    "pose_file_path",
+                    "pose_shape",
+                    "ai_metadata",
+                    "pose_generated_at",
+                    "sign_status",
+                    "updated_at",
+                ]
+            )
+        except AIPoseGenerationError as e:
+            logger.error(f"Pose generation failed for item {item.id}: {e.message}")
+            item.pose_file_path = ""
+            item.pose_shape = None
+            item.ai_metadata = None
+            item.sign_status = SignStatusChoices.FAILED
+            item.save(
+                update_fields=[
+                    "pose_file_path",
+                    "pose_shape",
+                    "ai_metadata",
+                    "sign_status",
+                    "updated_at",
+                ]
+            )
+            return Response(
+                {
+                    "detail": "Gloss was generated but pose generation failed.",
+                    "code": "pose_generation_failed",
+                    "item_id": item.id,
+                    "sign_status": item.sign_status,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error in pose generation for item {item.id}.")
+            item.pose_file_path = ""
+            item.pose_shape = None
+            item.ai_metadata = None
+            item.sign_status = SignStatusChoices.FAILED
+            item.save(
+                update_fields=[
+                    "pose_file_path",
+                    "pose_shape",
+                    "ai_metadata",
+                    "sign_status",
+                    "updated_at",
+                ]
+            )
+            return Response(
+                {
+                    "detail": "Gloss was generated but pose generation failed.",
+                    "code": "pose_generation_failed",
+                    "item_id": item.id,
+                    "sign_status": item.sign_status,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         item.refresh_from_db()
         return Response(
             {
@@ -849,10 +921,17 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 "sign_status": SignStatusChoices.COMPLETED,
                 "gloss_text": item.supporting_text,
                 "supporting_text": item.supporting_text,
+                "pose": {
+                    "success": True,
+                    "gloss": item.supporting_text,
+                    "pose_shape": item.pose_shape,
+                    "file_path": item.pose_file_path,
+                    "metadata": item.ai_metadata,
+                },
                 "video_url": None,
-                "output_type": "gloss_only",
+                "output_type": "gloss_and_pose",
                 "video_generation_supported": False,
-                "detail": "Gloss generated successfully",
+                "detail": "Gloss and pose generated successfully",
             }
         )
 

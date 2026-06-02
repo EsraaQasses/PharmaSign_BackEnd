@@ -1,8 +1,10 @@
 from django.utils import timezone
 
-from common.choices import PrescriptionAccessTypeChoices
-from common.choices import SignStatusChoices
-from common.choices import TranscriptionStatusChoices
+from common.choices import (
+    PrescriptionAccessTypeChoices,
+    SignStatusChoices,
+    TranscriptionStatusChoices,
+)
 from transcriptions.exceptions import sanitize_transcription_error
 from transcriptions.services import get_gemini_modules
 
@@ -63,7 +65,7 @@ def log_prescription_access(prescription, user, access_type):
 
 def transcribe_prescription_item(prescription_item, *, requested_by, force=False):
     if not prescription_item.instructions_audio:
-        raise ValueError('Cannot transcribe an item without instructions audio.')
+        raise ValueError("Cannot transcribe an item without instructions audio.")
 
     if (
         prescription_item.transcription_status == TranscriptionStatusChoices.COMPLETED
@@ -73,13 +75,13 @@ def transcribe_prescription_item(prescription_item, *, requested_by, force=False
 
     prescription_item.transcription_status = TranscriptionStatusChoices.PROCESSING
     prescription_item.transcription_requested_at = timezone.now()
-    prescription_item.transcription_error_message = ''
+    prescription_item.transcription_error_message = ""
     prescription_item.save(
         update_fields=[
-            'transcription_status',
-            'transcription_requested_at',
-            'transcription_error_message',
-            'updated_at',
+            "transcription_status",
+            "transcription_requested_at",
+            "transcription_error_message",
+            "updated_at",
         ]
     )
 
@@ -88,16 +90,16 @@ def transcribe_prescription_item(prescription_item, *, requested_by, force=False
         result = backend.transcribe(prescription_item=prescription_item)
     except Exception as exc:
         prescription_item.transcription_status = TranscriptionStatusChoices.FAILED
-        prescription_item.transcription_provider = getattr(backend, 'provider_name', '')
+        prescription_item.transcription_provider = getattr(backend, "provider_name", "")
         prescription_item.transcription_completed_at = timezone.now()
         prescription_item.transcription_error_message = str(exc)
         prescription_item.save(
             update_fields=[
-                'transcription_status',
-                'transcription_provider',
-                'transcription_completed_at',
-                'transcription_error_message',
-                'updated_at',
+                "transcription_status",
+                "transcription_provider",
+                "transcription_completed_at",
+                "transcription_error_message",
+                "updated_at",
             ]
         )
         raise
@@ -108,16 +110,16 @@ def transcribe_prescription_item(prescription_item, *, requested_by, force=False
     prescription_item.transcription_status = TranscriptionStatusChoices.COMPLETED
     prescription_item.transcription_provider = result.provider_name
     prescription_item.transcription_completed_at = timezone.now()
-    prescription_item.transcription_error_message = ''
+    prescription_item.transcription_error_message = ""
     prescription_item.save(
         update_fields=[
-            'instructions_transcript_raw',
-            'instructions_transcript_edited',
-            'transcription_status',
-            'transcription_provider',
-            'transcription_completed_at',
-            'transcription_error_message',
-            'updated_at',
+            "instructions_transcript_raw",
+            "instructions_transcript_edited",
+            "transcription_status",
+            "transcription_provider",
+            "transcription_completed_at",
+            "transcription_error_message",
+            "updated_at",
         ]
     )
     log_prescription_access(

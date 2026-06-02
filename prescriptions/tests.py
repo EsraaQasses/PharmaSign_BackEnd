@@ -2983,6 +2983,136 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
 
+    @patch("prescriptions.views.generate_pose_from_gloss")
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_full_pipeline_success(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "دواء حبة الصبح قبل الاكل",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "دواء حبة الصبح قبل الاكل",
+            "pose_shape": [128, 576],
+            "file_path": "generated_outputs/gen_mock.npy",
+            "metadata": {"model": "v4_bounded_offset_trimmed", "device": "cuda"},
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ حبة في الصباح قبل الطعام"
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["item_id"], item.id)
+        self.assertEqual(response.data["gloss_text"], "دواء حبة الصبح قبل الاكل")
+        self.assertEqual(response.data["supporting_text"], "دواء حبة الصبح قبل الاكل")
+        self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
+        self.assertEqual(response.data["output_type"], "gloss_and_pose")
+        self.assertTrue(response.data["pose"]["success"])
+        self.assertEqual(
+            response.data["pose"]["file_path"], "generated_outputs/gen_mock.npy"
+        )
+        self.assertEqual(response.data["pose"]["pose_shape"], [128, 576])
+
+        # Verify DB updates
+        item.refresh_from_db()
+        self.assertEqual(item.supporting_text, "دواء حبة الصبح قبل الاكل")
+        self.assertEqual(item.pose_file_path, "generated_outputs/gen_mock.npy")
+        self.assertEqual(item.pose_shape, [128, 576])
+        self.assertEqual(
+            item.ai_metadata, {"model": "v4_bounded_offset_trimmed", "device": "cuda"}
+        )
+        self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
+        self.assertTrue(item.pose_generated_at)
+
+        # Assert correct calls
+        mock_generate_sign_gloss.assert_called_once_with("خذ حبة في الصباح قبل الطعام")
+        mock_generate_pose_from_gloss.assert_called_once_with(
+            "دواء حبة الصبح قبل الاكل", return_format="npy"
+        )
+
+    @patch("prescriptions.views.generate_pose_from_gloss")
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_gemini_failure_does_not_call_pose(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
+        mock_generate_sign_gloss.side_effect = SignGenerationError("provider failed")
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ حبة في الصباح قبل الطعام"
+        item.save(update_fields=["instructions_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        mock_generate_pose_from_gloss.assert_not_called()
+        item.refresh_from_db()
+        self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
+
+    @patch("prescriptions.views.generate_pose_from_gloss")
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_generate_sign_pose_failure_after_gemini_success(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
+        from ai_integration.exceptions import AIPoseGenerationError
+
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "دواء حبة الصبح قبل الاكل",
+        }
+        mock_generate_pose_from_gloss.side_effect = AIPoseGenerationError(
+            "AI service unreachable"
+        )
+
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "خذ حبة في الصباح قبل الطعام"
+        item.supporting_text = "old gloss"
+        item.save(update_fields=["instructions_text", "supporting_text", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-generate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["code"], "pose_generation_failed")
+        self.assertEqual(
+            response.data["detail"], "Gloss was generated but pose generation failed."
+        )
+
+        # Supporting text is saved, but pose fields are cleared/empty, and status is failed
+        item.refresh_from_db()
+        self.assertEqual(item.supporting_text, "دواء حبة الصبح قبل الاكل")
+        self.assertEqual(item.pose_file_path, "")
+        self.assertEqual(item.pose_shape, None)
+        self.assertEqual(item.ai_metadata, None)
+        self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
+
     def test_archived_prescription_cannot_be_modified_or_processed(self):
         prescription = self._create_prescription()
         item = prescription.items.first()
