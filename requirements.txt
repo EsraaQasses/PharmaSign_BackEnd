@@ -14,6 +14,7 @@ django-cors-headers==4.6.0
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 filelock==3.28.0
+fastapi
 google-genai
 h11==0.16.0
 httpcore==1.0.9
@@ -23,9 +24,13 @@ idna==3.13
 isort==5.13.2
 mypy_extensions==1.1.0
 nodeenv==1.10.0
+mediapipe
+matplotlib
 packaging==26.1
+pandas
 pathspec==1.0.4
 pillow==11.0.0
+opencv-python
 platformdirs==4.9.6
 pre-commit==3.8.0
 psycopg2-binary==2.9.11
@@ -41,5 +46,10 @@ sqlparse==0.5.5
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.1
+uvicorn
 virtualenv==21.2.4
 requests
+numpy
+torch
+transformers
+tqdm

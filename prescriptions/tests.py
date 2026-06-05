@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -34,6 +35,98 @@ from .models import (
     SignQualityReport,
 )
 from .services import SignGenerationError
+
+
+class PrescriptionItemEncryptionTests(APITestCase):
+    def test_prescription_item_medical_text_is_encrypted_in_database(self):
+        patient_user = User.objects.create_user(
+            email="encrypted.rx.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            full_name="Encrypted RX Patient",
+        )
+        pharmacist_user = User.objects.create_user(
+            email="encrypted.rx.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Encrypted Pharmacy",
+            address="Damascus",
+        )
+        pharmacist = PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Encrypted Pharmacist",
+            is_approved=True,
+        )
+        prescription = Prescription.objects.create(
+            patient=patient,
+            pharmacist=pharmacist,
+            pharmacy=pharmacy,
+            doctor_name="Dr Secure",
+            diagnosis="Sensitive diagnosis",
+            notes="Sensitive prescription notes",
+        )
+        item = PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Secure Med",
+            unit_price="1.00",
+            instructions_text="Take one tablet after food",
+            instructions_transcript_raw="Raw private transcript",
+            instructions_transcript_edited="Approved private transcript",
+            supporting_text="Generated private gloss",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                (
+                    "SELECT diagnosis, notes FROM prescriptions_prescription "
+                    "WHERE id = %s"
+                ),
+                [prescription.id],
+            )
+            raw_diagnosis, raw_notes = cursor.fetchone()
+            cursor.execute(
+                (
+                    "SELECT instructions_text, instructions_transcript_raw, "
+                    "instructions_transcript_edited, supporting_text "
+                    "FROM prescriptions_prescriptionitem WHERE id = %s"
+                ),
+                [item.id],
+            )
+            (
+                raw_instructions,
+                raw_transcript,
+                raw_approved,
+                raw_gloss,
+            ) = cursor.fetchone()
+
+        for raw_value, plain_fragment in (
+            (raw_diagnosis, "Sensitive diagnosis"),
+            (raw_notes, "Sensitive prescription notes"),
+            (raw_instructions, "Take one tablet"),
+            (raw_transcript, "Raw private"),
+            (raw_approved, "Approved private"),
+            (raw_gloss, "Generated private"),
+        ):
+            self.assertNotIn(plain_fragment, raw_value)
+            self.assertTrue(raw_value.startswith("gAAAAA"))
+
+        prescription.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(prescription.diagnosis, "Sensitive diagnosis")
+        self.assertEqual(prescription.notes, "Sensitive prescription notes")
+        self.assertEqual(item.instructions_text, "Take one tablet after food")
+        self.assertEqual(item.instructions_transcript_raw, "Raw private transcript")
+        self.assertEqual(
+            item.instructions_transcript_edited,
+            "Approved private transcript",
+        )
+        self.assertEqual(item.supporting_text, "Generated private gloss")
 
 
 class PrescriptionPermissionTests(APITestCase):
@@ -2747,8 +2840,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         prescription = self._create_prescription()
         item = prescription.items.first()
         item.supporting_text = "generated gloss"
-        item.pose_file_path = "generated_outputs/gen_mock.npy"
-        item.generated_video_url = "/media/generated/generated_sentence_skeleton_576.mp4"
+        item.pose_file_path = "/media/generated/poses/pose_mock.npy"
+        item.generated_video_url = "/media/generated/skeleton_videos/skeleton_mock.mp4"
         item.sign_status = SignStatusChoices.COMPLETED
         item.save(
             update_fields=[
@@ -2773,7 +2866,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["gloss_text"], "generated gloss")
         self.assertEqual(
             response.data["generated_video_url"],
-            "/media/generated/generated_sentence_skeleton_576.mp4",
+            "/media/generated/skeleton_videos/skeleton_mock.mp4",
         )
 
     @patch("prescriptions.views.generate_pose_from_gloss")
@@ -2790,8 +2883,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "new gloss",
             "pose_shape": [64, 576],
-            "file_path": "generated_outputs/new.npy",
-            "video_path": "/media/generated/new.mp4",
+            "pose_file": "/media/generated/poses/pose_new.npy",
+            "generated_video_url": "/media/generated/skeleton_videos/skeleton_new.mp4",
             "metadata": {"model": "retrieval"},
         }
         prescription = self._create_prescription()
@@ -2799,7 +2892,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.instructions_text = "Manual instructions"
         item.sign_status = SignStatusChoices.FAILED
         item.pose_file_path = "old.npy"
-        item.generated_video_url = "/media/generated/old.mp4"
+        item.generated_video_url = "/media/generated/skeleton_videos/skeleton_old.mp4"
         item.sign_error_message = "old error"
         item.save(
             update_fields=[
@@ -2825,8 +2918,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
         self.assertEqual(item.supporting_text, "new gloss")
-        self.assertEqual(item.pose_file_path, "generated_outputs/new.npy")
-        self.assertEqual(item.generated_video_url, "/media/generated/new.mp4")
+        self.assertEqual(item.pose_file_path, "/media/generated/poses/pose_new.npy")
+        self.assertEqual(item.generated_video_url, "/media/generated/skeleton_videos/skeleton_new.mp4")
         self.assertEqual(item.sign_error_message, "")
 
     @patch("prescriptions.views.generate_pose_from_gloss")
@@ -2843,7 +2936,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "generated gloss",
             "pose_shape": [128, 576],
-            "file_path": "generated_outputs/gen_mock.npy",
+            "pose_file": "/media/generated/poses/pose_mock.npy",
             "metadata": {"model": "v4_bounded_offset_trimmed"},
         }
         prescription = self._create_prescription()
@@ -2898,7 +2991,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "raw gloss",
             "pose_shape": [128, 576],
-            "file_path": "generated_outputs/gen_mock.npy",
+            "pose_file": "/media/generated/poses/pose_mock.npy",
             "metadata": {},
         }
         prescription = self._create_prescription()
@@ -2941,7 +3034,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "instruction gloss",
             "pose_shape": [128, 576],
-            "file_path": "generated_outputs/gen_mock.npy",
+            "pose_file": "/media/generated/poses/pose_mock.npy",
             "metadata": {},
         }
         prescription = self._create_prescription()
@@ -3063,7 +3156,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "جرعة 1 صباح",
             "pose_shape": [128, 576],
-            "file_path": "generated_outputs/gen_mock.npy",
+            "pose_file": "/media/generated/poses/pose_mock.npy",
             "metadata": {},
         }
         prescription = self._create_prescription()
@@ -3134,8 +3227,8 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "success": True,
             "gloss": "دواء حبة الصبح قبل الاكل",
             "pose_shape": [128, 576],
-            "file_path": "generated_outputs/gen_mock.npy",
-            "video_path": "/media/generated/generated_sentence_skeleton_576.mp4",
+            "pose_file": "/media/generated/poses/pose_mock.npy",
+            "generated_video_url": "/media/generated/skeleton_videos/skeleton_mock.mp4",
             "metadata": {"model": "v4_bounded_offset_trimmed", "device": "cuda"},
         }
         prescription = self._create_prescription()
@@ -3159,26 +3252,26 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertEqual(response.data["output_type"], "gloss_pose_and_video")
         self.assertIn(
-            "/media/generated/generated_sentence_skeleton_576.mp4",
+            "/media/generated/skeleton_videos/skeleton_mock.mp4",
             response.data["video_url"],
         )
         self.assertTrue(response.data["pose"]["success"])
         self.assertEqual(
-            response.data["pose"]["file_path"], "generated_outputs/gen_mock.npy"
+            response.data["pose"]["file_path"], "/media/generated/poses/pose_mock.npy"
         )
         self.assertEqual(response.data["pose"]["pose_shape"], [128, 576])
 
         # Verify DB updates
         item.refresh_from_db()
         self.assertEqual(item.supporting_text, "دواء حبة الصبح قبل الاكل")
-        self.assertEqual(item.pose_file_path, "generated_outputs/gen_mock.npy")
+        self.assertEqual(item.pose_file_path, "/media/generated/poses/pose_mock.npy")
         self.assertEqual(
             item.generated_video_path,
-            "/media/generated/generated_sentence_skeleton_576.mp4",
+            "/media/generated/skeleton_videos/skeleton_mock.mp4",
         )
         self.assertEqual(
             item.generated_video_url,
-            "/media/generated/generated_sentence_skeleton_576.mp4",
+            "/media/generated/skeleton_videos/skeleton_mock.mp4",
         )
         self.assertEqual(item.pose_shape, [128, 576])
         self.assertEqual(

@@ -1,0 +1,247 @@
+﻿id,category,gloss_clean,natural_arabic,gloss_arabic,folder_name,signer_id,take_id,video_filename,video_path,absolute_video_path,video_exists,dataset_stage
+TOK_0001_T01,token,أربعة,أربعة,أربعة,أربعة,S01,T01,S01_T01.mp4,Tokens/أربعة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أربعة\S01_T01.mp4,True,token_folder_prepared
+TOK_0001_T02,token,أربعة,أربعة,أربعة,أربعة,S01,T02,S01_T02.mp4,Tokens/أربعة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أربعة\S01_T02.mp4,True,token_folder_prepared
+TOK_0001_T03,token,أربعة,أربعة,أربعة,أربعة,S01,T03,S01_T03.mp4,Tokens/أربعة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أربعة\S01_T03.mp4,True,token_folder_prepared
+TOK_0001_T04,token,أربعة,أربعة,أربعة,أربعة,S01,T04,S01_T04.mp4,Tokens/أربعة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أربعة\S01_T04.mp4,True,token_folder_prepared
+TOK_0002_T01,token,أسبوع,أسبوع,أسبوع,أسبوع,S01,T01,S01_T01.mp4,Tokens/أسبوع/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أسبوع\S01_T01.mp4,True,token_folder_prepared
+TOK_0002_T02,token,أسبوع,أسبوع,أسبوع,أسبوع,S01,T02,S01_T02.mp4,Tokens/أسبوع/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أسبوع\S01_T02.mp4,True,token_folder_prepared
+TOK_0002_T03,token,أسبوع,أسبوع,أسبوع,أسبوع,S01,T03,S01_T03.mp4,Tokens/أسبوع/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أسبوع\S01_T03.mp4,True,token_folder_prepared
+TOK_0002_T04,token,أسبوع,أسبوع,أسبوع,أسبوع,S01,T04,S01_T04.mp4,Tokens/أسبوع/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أسبوع\S01_T04.mp4,True,token_folder_prepared
+TOK_0003_T01,token,أوقف,أوقف,أوقف,أوقف,S01,T01,S01_T01.mp4,Tokens/أوقف/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أوقف\S01_T01.mp4,True,token_folder_prepared
+TOK_0003_T02,token,أوقف,أوقف,أوقف,أوقف,S01,T02,S01_T02.mp4,Tokens/أوقف/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أوقف\S01_T02.mp4,True,token_folder_prepared
+TOK_0003_T03,token,أوقف,أوقف,أوقف,أوقف,S01,T03,S01_T03.mp4,Tokens/أوقف/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أوقف\S01_T03.mp4,True,token_folder_prepared
+TOK_0003_T04,token,أوقف,أوقف,أوقف,أوقف,S01,T04,S01_T04.mp4,Tokens/أوقف/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\أوقف\S01_T04.mp4,True,token_folder_prepared
+TOK_0004_T01,token,إسعاف,إسعاف,إسعاف,إسعاف,S01,T01,S01_T01.mp4,Tokens/إسعاف/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسعاف\S01_T01.mp4,True,token_folder_prepared
+TOK_0004_T02,token,إسعاف,إسعاف,إسعاف,إسعاف,S01,T02,S01_T02.mp4,Tokens/إسعاف/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسعاف\S01_T02.mp4,True,token_folder_prepared
+TOK_0004_T03,token,إسعاف,إسعاف,إسعاف,إسعاف,S01,T03,S01_T03.mp4,Tokens/إسعاف/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسعاف\S01_T03.mp4,True,token_folder_prepared
+TOK_0004_T04,token,إسعاف,إسعاف,إسعاف,إسعاف,S01,T04,S01_T04.mp4,Tokens/إسعاف/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسعاف\S01_T04.mp4,True,token_folder_prepared
+TOK_0005_T01,token,إسهال,إسهال,إسهال,إسهال,S01,T01,S01_T01.mp4,Tokens/إسهال/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسهال\S01_T01.mp4,True,token_folder_prepared
+TOK_0005_T02,token,إسهال,إسهال,إسهال,إسهال,S01,T02,S01_T02.mp4,Tokens/إسهال/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسهال\S01_T02.mp4,True,token_folder_prepared
+TOK_0005_T03,token,إسهال,إسهال,إسهال,إسهال,S01,T03,S01_T03.mp4,Tokens/إسهال/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسهال\S01_T03.mp4,True,token_folder_prepared
+TOK_0005_T04,token,إسهال,إسهال,إسهال,إسهال,S01,T04,S01_T04.mp4,Tokens/إسهال/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\إسهال\S01_T04.mp4,True,token_folder_prepared
+TOK_0006_T01,token,ابلع,ابلع,ابلع,ابلع,S01,T01,S01_T01.mp4,Tokens/ابلع/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ابلع\S01_T01.mp4,True,token_folder_prepared
+TOK_0006_T02,token,ابلع,ابلع,ابلع,ابلع,S01,T02,S01_T02.mp4,Tokens/ابلع/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ابلع\S01_T02.mp4,True,token_folder_prepared
+TOK_0006_T03,token,ابلع,ابلع,ابلع,ابلع,S01,T03,S01_T03.mp4,Tokens/ابلع/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ابلع\S01_T03.mp4,True,token_folder_prepared
+TOK_0006_T04,token,ابلع,ابلع,ابلع,ابلع,S01,T04,S01_T04.mp4,Tokens/ابلع/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ابلع\S01_T04.mp4,True,token_folder_prepared
+TOK_0007_T01,token,اثنين,اثنين,اثنين,اثنين,S01,T01,S01_T01.mp4,Tokens/اثنين/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اثنين\S01_T01.mp4,True,token_folder_prepared
+TOK_0007_T02,token,اثنين,اثنين,اثنين,اثنين,S01,T02,S01_T02.mp4,Tokens/اثنين/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اثنين\S01_T02.mp4,True,token_folder_prepared
+TOK_0007_T03,token,اثنين,اثنين,اثنين,اثنين,S01,T03,S01_T03.mp4,Tokens/اثنين/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اثنين\S01_T03.mp4,True,token_folder_prepared
+TOK_0007_T04,token,اثنين,اثنين,اثنين,اثنين,S01,T04,S01_T04.mp4,Tokens/اثنين/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اثنين\S01_T04.mp4,True,token_folder_prepared
+TOK_0008_T01,token,اذا,اذا,اذا,اذا,S01,T01,S01_T01.mp4,Tokens/اذا/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اذا\S01_T01.mp4,True,token_folder_prepared
+TOK_0008_T02,token,اذا,اذا,اذا,اذا,S01,T02,S01_T02.mp4,Tokens/اذا/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اذا\S01_T02.mp4,True,token_folder_prepared
+TOK_0008_T03,token,اذا,اذا,اذا,اذا,S01,T03,S01_T03.mp4,Tokens/اذا/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اذا\S01_T03.mp4,True,token_folder_prepared
+TOK_0008_T04,token,اذا,اذا,اذا,اذا,S01,T04,S01_T04.mp4,Tokens/اذا/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اذا\S01_T04.mp4,True,token_folder_prepared
+TOK_0009_T01,token,استخدم,استخدم,استخدم,استخدم,S01,T01,S01_T01.mp4,Tokens/استخدم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\استخدم\S01_T01.mp4,True,token_folder_prepared
+TOK_0009_T02,token,استخدم,استخدم,استخدم,استخدم,S01,T02,S01_T02.mp4,Tokens/استخدم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\استخدم\S01_T02.mp4,True,token_folder_prepared
+TOK_0009_T03,token,استخدم,استخدم,استخدم,استخدم,S01,T03,S01_T03.mp4,Tokens/استخدم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\استخدم\S01_T03.mp4,True,token_folder_prepared
+TOK_0009_T04,token,استخدم,استخدم,استخدم,استخدم,S01,T04,S01_T04.mp4,Tokens/استخدم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\استخدم\S01_T04.mp4,True,token_folder_prepared
+TOK_0010_T01,token,اشرب,اشرب,اشرب,اشرب,S01,T01,S01_T01.mp4,Tokens/اشرب/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اشرب\S01_T01.mp4,True,token_folder_prepared
+TOK_0010_T02,token,اشرب,اشرب,اشرب,اشرب,S01,T02,S01_T02.mp4,Tokens/اشرب/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اشرب\S01_T02.mp4,True,token_folder_prepared
+TOK_0010_T03,token,اشرب,اشرب,اشرب,اشرب,S01,T03,S01_T03.mp4,Tokens/اشرب/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اشرب\S01_T03.mp4,True,token_folder_prepared
+TOK_0010_T04,token,اشرب,اشرب,اشرب,اشرب,S01,T04,S01_T04.mp4,Tokens/اشرب/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\اشرب\S01_T04.mp4,True,token_folder_prepared
+TOK_0011_T01,token,الأذن,الأذن,الأذن,الأذن,S01,T01,S01_T01.mp4,Tokens/الأذن/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأذن\S01_T01.mp4,True,token_folder_prepared
+TOK_0011_T02,token,الأذن,الأذن,الأذن,الأذن,S01,T02,S01_T02.mp4,Tokens/الأذن/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأذن\S01_T02.mp4,True,token_folder_prepared
+TOK_0011_T03,token,الأذن,الأذن,الأذن,الأذن,S01,T03,S01_T03.mp4,Tokens/الأذن/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأذن\S01_T03.mp4,True,token_folder_prepared
+TOK_0011_T04,token,الأذن,الأذن,الأذن,الأذن,S01,T04,S01_T04.mp4,Tokens/الأذن/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأذن\S01_T04.mp4,True,token_folder_prepared
+TOK_0012_T01,token,الأنف,الأنف,الأنف,الأنف,S01,T01,S01_T01.mp4,Tokens/الأنف/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأنف\S01_T01.mp4,True,token_folder_prepared
+TOK_0012_T02,token,الأنف,الأنف,الأنف,الأنف,S01,T02,S01_T02.mp4,Tokens/الأنف/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأنف\S01_T02.mp4,True,token_folder_prepared
+TOK_0012_T03,token,الأنف,الأنف,الأنف,الأنف,S01,T03,S01_T03.mp4,Tokens/الأنف/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأنف\S01_T03.mp4,True,token_folder_prepared
+TOK_0012_T04,token,الأنف,الأنف,الأنف,الأنف,S01,T04,S01_T04.mp4,Tokens/الأنف/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الأنف\S01_T04.mp4,True,token_folder_prepared
+TOK_0013_T01,token,الجلد,الجلد,الجلد,الجلد,S01,T01,S01_T01.mp4,Tokens/الجلد/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الجلد\S01_T01.mp4,True,token_folder_prepared
+TOK_0013_T02,token,الجلد,الجلد,الجلد,الجلد,S01,T02,S01_T02.mp4,Tokens/الجلد/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الجلد\S01_T02.mp4,True,token_folder_prepared
+TOK_0013_T03,token,الجلد,الجلد,الجلد,الجلد,S01,T03,S01_T03.mp4,Tokens/الجلد/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الجلد\S01_T03.mp4,True,token_folder_prepared
+TOK_0013_T04,token,الجلد,الجلد,الجلد,الجلد,S01,T04,S01_T04.mp4,Tokens/الجلد/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الجلد\S01_T04.mp4,True,token_folder_prepared
+TOK_0014_T01,token,الصباح,الصباح,الصباح,الصباح,S01,T01,S01_T01.mp4,Tokens/الصباح/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الصباح\S01_T01.mp4,True,token_folder_prepared
+TOK_0014_T02,token,الصباح,الصباح,الصباح,الصباح,S01,T02,S01_T02.mp4,Tokens/الصباح/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الصباح\S01_T02.mp4,True,token_folder_prepared
+TOK_0014_T03,token,الصباح,الصباح,الصباح,الصباح,S01,T03,S01_T03.mp4,Tokens/الصباح/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الصباح\S01_T03.mp4,True,token_folder_prepared
+TOK_0014_T04,token,الصباح,الصباح,الصباح,الصباح,S01,T04,S01_T04.mp4,Tokens/الصباح/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الصباح\S01_T04.mp4,True,token_folder_prepared
+TOK_0015_T01,token,العين,العين,العين,العين,S01,T01,S01_T01.mp4,Tokens/العين/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\العين\S01_T01.mp4,True,token_folder_prepared
+TOK_0015_T02,token,العين,العين,العين,العين,S01,T02,S01_T02.mp4,Tokens/العين/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\العين\S01_T02.mp4,True,token_folder_prepared
+TOK_0015_T03,token,العين,العين,العين,العين,S01,T03,S01_T03.mp4,Tokens/العين/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\العين\S01_T03.mp4,True,token_folder_prepared
+TOK_0015_T04,token,العين,العين,العين,العين,S01,T04,S01_T04.mp4,Tokens/العين/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\العين\S01_T04.mp4,True,token_folder_prepared
+TOK_0016_T01,token,الفم,الفم,الفم,الفم,S01,T01,S01_T01.mp4,Tokens/الفم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الفم\S01_T01.mp4,True,token_folder_prepared
+TOK_0016_T02,token,الفم,الفم,الفم,الفم,S01,T02,S01_T02.mp4,Tokens/الفم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الفم\S01_T02.mp4,True,token_folder_prepared
+TOK_0016_T03,token,الفم,الفم,الفم,الفم,S01,T03,S01_T03.mp4,Tokens/الفم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الفم\S01_T03.mp4,True,token_folder_prepared
+TOK_0016_T04,token,الفم,الفم,الفم,الفم,S01,T04,S01_T04.mp4,Tokens/الفم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الفم\S01_T04.mp4,True,token_folder_prepared
+TOK_0017_T01,token,الليل,الليل,الليل,الليل,S01,T01,S01_T01.mp4,Tokens/الليل/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الليل\S01_T01.mp4,True,token_folder_prepared
+TOK_0017_T02,token,الليل,الليل,الليل,الليل,S01,T02,S01_T02.mp4,Tokens/الليل/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الليل\S01_T02.mp4,True,token_folder_prepared
+TOK_0017_T03,token,الليل,الليل,الليل,الليل,S01,T03,S01_T03.mp4,Tokens/الليل/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الليل\S01_T03.mp4,True,token_folder_prepared
+TOK_0017_T04,token,الليل,الليل,الليل,الليل,S01,T04,S01_T04.mp4,Tokens/الليل/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\الليل\S01_T04.mp4,True,token_folder_prepared
+TOK_0018_T01,token,انتبه,انتبه,انتبه,انتبه,S01,T01,S01_T01.mp4,Tokens/انتبه/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتبه\S01_T01.mp4,True,token_folder_prepared
+TOK_0018_T02,token,انتبه,انتبه,انتبه,انتبه,S01,T02,S01_T02.mp4,Tokens/انتبه/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتبه\S01_T02.mp4,True,token_folder_prepared
+TOK_0018_T03,token,انتبه,انتبه,انتبه,انتبه,S01,T03,S01_T03.mp4,Tokens/انتبه/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتبه\S01_T03.mp4,True,token_folder_prepared
+TOK_0018_T04,token,انتبه,انتبه,انتبه,انتبه,S01,T04,S01_T04.mp4,Tokens/انتبه/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتبه\S01_T04.mp4,True,token_folder_prepared
+TOK_0019_T01,token,انتظر,انتظر,انتظر,انتظر,S01,T01,S01_T01.mp4,Tokens/انتظر/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتظر\S01_T01.mp4,True,token_folder_prepared
+TOK_0019_T02,token,انتظر,انتظر,انتظر,انتظر,S01,T02,S01_T02.mp4,Tokens/انتظر/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتظر\S01_T02.mp4,True,token_folder_prepared
+TOK_0019_T03,token,انتظر,انتظر,انتظر,انتظر,S01,T03,S01_T03.mp4,Tokens/انتظر/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتظر\S01_T03.mp4,True,token_folder_prepared
+TOK_0019_T04,token,انتظر,انتظر,انتظر,انتظر,S01,T04,S01_T04.mp4,Tokens/انتظر/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\انتظر\S01_T04.mp4,True,token_folder_prepared
+TOK_0020_T01,token,بخة,بخة,بخة,بخة,S01,T01,S01_T01.mp4,Tokens/بخة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بخة\S01_T01.mp4,True,token_folder_prepared
+TOK_0020_T02,token,بخة,بخة,بخة,بخة,S01,T02,S01_T02.mp4,Tokens/بخة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بخة\S01_T02.mp4,True,token_folder_prepared
+TOK_0020_T03,token,بخة,بخة,بخة,بخة,S01,T03,S01_T03.mp4,Tokens/بخة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بخة\S01_T03.mp4,True,token_folder_prepared
+TOK_0020_T04,token,بخة,بخة,بخة,بخة,S01,T04,S01_T04.mp4,Tokens/بخة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بخة\S01_T04.mp4,True,token_folder_prepared
+TOK_0021_T01,token,براد,براد,براد,براد,S01,T01,S01_T01.mp4,Tokens/براد/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\براد\S01_T01.mp4,True,token_folder_prepared
+TOK_0021_T02,token,براد,براد,براد,براد,S01,T02,S01_T02.mp4,Tokens/براد/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\براد\S01_T02.mp4,True,token_folder_prepared
+TOK_0021_T03,token,براد,براد,براد,براد,S01,T03,S01_T03.mp4,Tokens/براد/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\براد\S01_T03.mp4,True,token_folder_prepared
+TOK_0022_T01,token,بعد الأكل,بعد الأكل,بعد الأكل,بعد الأكل,S01,T01,S01_T01.mp4,Tokens/بعد الأكل/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعد الأكل\S01_T01.mp4,True,token_folder_prepared
+TOK_0022_T02,token,بعد الأكل,بعد الأكل,بعد الأكل,بعد الأكل,S01,T02,S01_T02.mp4,Tokens/بعد الأكل/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعد الأكل\S01_T02.mp4,True,token_folder_prepared
+TOK_0022_T03,token,بعد الأكل,بعد الأكل,بعد الأكل,بعد الأكل,S01,T03,S01_T03.mp4,Tokens/بعد الأكل/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعد الأكل\S01_T03.mp4,True,token_folder_prepared
+TOK_0022_T04,token,بعد الأكل,بعد الأكل,بعد الأكل,بعد الأكل,S01,T04,S01_T04.mp4,Tokens/بعد الأكل/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعد الأكل\S01_T04.mp4,True,token_folder_prepared
+TOK_0023_T01,token,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,S01,T01,S01_T01.mp4,Tokens/بعيد عن الأطفال/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعيد عن الأطفال\S01_T01.mp4,True,token_folder_prepared
+TOK_0023_T02,token,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,S01,T02,S01_T02.mp4,Tokens/بعيد عن الأطفال/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعيد عن الأطفال\S01_T02.mp4,True,token_folder_prepared
+TOK_0023_T03,token,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,S01,T03,S01_T03.mp4,Tokens/بعيد عن الأطفال/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعيد عن الأطفال\S01_T03.mp4,True,token_folder_prepared
+TOK_0023_T04,token,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,بعيد عن الأطفال,S01,T04,S01_T04.mp4,Tokens/بعيد عن الأطفال/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\بعيد عن الأطفال\S01_T04.mp4,True,token_folder_prepared
+TOK_0024_T01,token,ثلاث مرات,ثلاث مرات,ثلاث مرات,ثلاث مرات,S01,T01,S01_T01.mp4,Tokens/ثلاث مرات/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاث مرات\S01_T01.mp4,True,token_folder_prepared
+TOK_0024_T02,token,ثلاث مرات,ثلاث مرات,ثلاث مرات,ثلاث مرات,S01,T02,S01_T02.mp4,Tokens/ثلاث مرات/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاث مرات\S01_T02.mp4,True,token_folder_prepared
+TOK_0024_T03,token,ثلاث مرات,ثلاث مرات,ثلاث مرات,ثلاث مرات,S01,T03,S01_T03.mp4,Tokens/ثلاث مرات/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاث مرات\S01_T03.mp4,True,token_folder_prepared
+TOK_0024_T04,token,ثلاث مرات,ثلاث مرات,ثلاث مرات,ثلاث مرات,S01,T04,S01_T04.mp4,Tokens/ثلاث مرات/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاث مرات\S01_T04.mp4,True,token_folder_prepared
+TOK_0024_T05,token,ثلاث مرات,ثلاث مرات,ثلاث مرات,ثلاث مرات,S01,T05,S01_T05.mp4,Tokens/ثلاث مرات/S01_T05.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاث مرات\S01_T05.mp4,True,token_folder_prepared
+TOK_0025_T01,token,ثلاثة,ثلاثة,ثلاثة,ثلاثة,S01,T01,S01_T01.mp4,Tokens/ثلاثة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاثة\S01_T01.mp4,True,token_folder_prepared
+TOK_0025_T02,token,ثلاثة,ثلاثة,ثلاثة,ثلاثة,S01,T02,S01_T02.mp4,Tokens/ثلاثة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاثة\S01_T02.mp4,True,token_folder_prepared
+TOK_0025_T03,token,ثلاثة,ثلاثة,ثلاثة,ثلاثة,S01,T03,S01_T03.mp4,Tokens/ثلاثة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاثة\S01_T03.mp4,True,token_folder_prepared
+TOK_0025_T04,token,ثلاثة,ثلاثة,ثلاثة,ثلاثة,S01,T04,S01_T04.mp4,Tokens/ثلاثة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ثلاثة\S01_T04.mp4,True,token_folder_prepared
+TOK_0026_T01,token,حبة,حبة,حبة,حبة,S01,T01,S01_T01.mp4,Tokens/حبة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حبة\S01_T01.mp4,True,token_folder_prepared
+TOK_0026_T02,token,حبة,حبة,حبة,حبة,S01,T02,S01_T02.mp4,Tokens/حبة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حبة\S01_T02.mp4,True,token_folder_prepared
+TOK_0026_T03,token,حبة,حبة,حبة,حبة,S01,T03,S01_T03.mp4,Tokens/حبة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حبة\S01_T03.mp4,True,token_folder_prepared
+TOK_0026_T04,token,حبة,حبة,حبة,حبة,S01,T04,S01_T04.mp4,Tokens/حبة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حبة\S01_T04.mp4,True,token_folder_prepared
+TOK_0027_T01,token,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,S01,T01,S01_T01.mp4,Tokens/حرارة الغرفة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حرارة الغرفة\S01_T01.mp4,True,token_folder_prepared
+TOK_0027_T02,token,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,S01,T02,S01_T02.mp4,Tokens/حرارة الغرفة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حرارة الغرفة\S01_T02.mp4,True,token_folder_prepared
+TOK_0027_T03,token,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,S01,T03,S01_T03.mp4,Tokens/حرارة الغرفة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حرارة الغرفة\S01_T03.mp4,True,token_folder_prepared
+TOK_0027_T04,token,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,حرارة الغرفة,S01,T04,S01_T04.mp4,Tokens/حرارة الغرفة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حرارة الغرفة\S01_T04.mp4,True,token_folder_prepared
+TOK_0028_T01,token,حساسية,حساسية,حساسية,حساسية,S01,T01,S01_T01.mp4,Tokens/حساسية/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حساسية\S01_T01.mp4,True,token_folder_prepared
+TOK_0028_T02,token,حساسية,حساسية,حساسية,حساسية,S01,T02,S01_T02.mp4,Tokens/حساسية/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حساسية\S01_T02.mp4,True,token_folder_prepared
+TOK_0028_T03,token,حساسية,حساسية,حساسية,حساسية,S01,T03,S01_T03.mp4,Tokens/حساسية/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حساسية\S01_T03.mp4,True,token_folder_prepared
+TOK_0028_T04,token,حساسية,حساسية,حساسية,حساسية,S01,T04,S01_T04.mp4,Tokens/حساسية/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\حساسية\S01_T04.mp4,True,token_folder_prepared
+TOK_0029_T01,token,خذ,خذ,خذ,خذ,S01,T01,S01_T01.mp4,Tokens/خذ/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خذ\S01_T01.mp4,True,token_folder_prepared
+TOK_0029_T02,token,خذ,خذ,خذ,خذ,S01,T02,S01_T02.mp4,Tokens/خذ/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خذ\S01_T02.mp4,True,token_folder_prepared
+TOK_0029_T03,token,خذ,خذ,خذ,خذ,S01,T03,S01_T03.mp4,Tokens/خذ/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خذ\S01_T03.mp4,True,token_folder_prepared
+TOK_0029_T04,token,خذ,خذ,خذ,خذ,S01,T04,S01_T04.mp4,Tokens/خذ/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خذ\S01_T04.mp4,True,token_folder_prepared
+TOK_0030_T01,token,خمسة,خمسة,خمسة,خمسة,S01,T01,S01_T01.mp4,Tokens/خمسة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خمسة\S01_T01.mp4,True,token_folder_prepared
+TOK_0030_T02,token,خمسة,خمسة,خمسة,خمسة,S01,T02,S01_T02.mp4,Tokens/خمسة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خمسة\S01_T02.mp4,True,token_folder_prepared
+TOK_0030_T03,token,خمسة,خمسة,خمسة,خمسة,S01,T03,S01_T03.mp4,Tokens/خمسة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خمسة\S01_T03.mp4,True,token_folder_prepared
+TOK_0030_T04,token,خمسة,خمسة,خمسة,خمسة,S01,T04,S01_T04.mp4,Tokens/خمسة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\خمسة\S01_T04.mp4,True,token_folder_prepared
+TOK_0031_T01,token,دوخة,دوخة,دوخة,دوخة,S01,T01,S01_T01.mp4,Tokens/دوخة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\دوخة\S01_T01.mp4,True,token_folder_prepared
+TOK_0031_T02,token,دوخة,دوخة,دوخة,دوخة,S01,T02,S01_T02.mp4,Tokens/دوخة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\دوخة\S01_T02.mp4,True,token_folder_prepared
+TOK_0031_T03,token,دوخة,دوخة,دوخة,دوخة,S01,T03,S01_T03.mp4,Tokens/دوخة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\دوخة\S01_T03.mp4,True,token_folder_prepared
+TOK_0031_T04,token,دوخة,دوخة,دوخة,دوخة,S01,T04,S01_T04.mp4,Tokens/دوخة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\دوخة\S01_T04.mp4,True,token_folder_prepared
+TOK_0032_T01,token,رج,رج,رج,رج,S01,T01,S01_T01.mp4,Tokens/رج/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\رج\S01_T01.mp4,True,token_folder_prepared
+TOK_0032_T02,token,رج,رج,رج,رج,S01,T02,S01_T02.mp4,Tokens/رج/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\رج\S01_T02.mp4,True,token_folder_prepared
+TOK_0032_T03,token,رج,رج,رج,رج,S01,T03,S01_T03.mp4,Tokens/رج/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\رج\S01_T03.mp4,True,token_folder_prepared
+TOK_0032_T04,token,رج,رج,رج,رج,S01,T04,S01_T04.mp4,Tokens/رج/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\رج\S01_T04.mp4,True,token_folder_prepared
+TOK_0033_T01,token,رخيص,رخيص,رخيص,رخيص,S01,T01,S01_T01.mp4,Tokens/رخيص/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\رخيص\S01_T01.mp4,True,token_folder_prepared
+TOK_0034_T01,token,شديد,شديد,شديد,شديد,S01,T01,S01_T01.mp4,Tokens/شديد/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شديد\S01_T01.mp4,True,token_folder_prepared
+TOK_0034_T02,token,شديد,شديد,شديد,شديد,S01,T02,S01_T02.mp4,Tokens/شديد/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شديد\S01_T02.mp4,True,token_folder_prepared
+TOK_0034_T03,token,شديد,شديد,شديد,شديد,S01,T03,S01_T03.mp4,Tokens/شديد/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شديد\S01_T03.mp4,True,token_folder_prepared
+TOK_0034_T04,token,شديد,شديد,شديد,شديد,S01,T04,S01_T04.mp4,Tokens/شديد/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شديد\S01_T04.mp4,True,token_folder_prepared
+TOK_0035_T01,token,شراب,شراب,شراب,شراب,S01,T01,S01_T01.mp4,Tokens/شراب/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شراب\S01_T01.mp4,True,token_folder_prepared
+TOK_0035_T02,token,شراب,شراب,شراب,شراب,S01,T02,S01_T02.mp4,Tokens/شراب/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شراب\S01_T02.mp4,True,token_folder_prepared
+TOK_0035_T03,token,شراب,شراب,شراب,شراب,S01,T03,S01_T03.mp4,Tokens/شراب/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شراب\S01_T03.mp4,True,token_folder_prepared
+TOK_0035_T04,token,شراب,شراب,شراب,شراب,S01,T04,S01_T04.mp4,Tokens/شراب/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\شراب\S01_T04.mp4,True,token_folder_prepared
+TOK_0036_T01,token,صافي,صافي,صافي,صافي,S01,T01,S01_T01.mp4,Tokens/صافي/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\صافي\S01_T01.mp4,True,token_folder_prepared
+TOK_0037_T01,token,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,S01,T01,S01_T01.mp4,Tokens/صعوبة تنفس/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\صعوبة تنفس\S01_T01.mp4,True,token_folder_prepared
+TOK_0037_T02,token,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,S01,T02,S01_T02.mp4,Tokens/صعوبة تنفس/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\صعوبة تنفس\S01_T02.mp4,True,token_folder_prepared
+TOK_0037_T03,token,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,S01,T03,S01_T03.mp4,Tokens/صعوبة تنفس/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\صعوبة تنفس\S01_T03.mp4,True,token_folder_prepared
+TOK_0037_T04,token,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,صعوبة تنفس,S01,T04,S01_T04.mp4,Tokens/صعوبة تنفس/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\صعوبة تنفس\S01_T04.mp4,True,token_folder_prepared
+TOK_0038_T01,token,ضع,ضع,ضع,ضع,S01,T01,S01_T01.mp4,Tokens/ضع/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ضع\S01_T01.mp4,True,token_folder_prepared
+TOK_0038_T02,token,ضع,ضع,ضع,ضع,S01,T02,S01_T02.mp4,Tokens/ضع/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ضع\S01_T02.mp4,True,token_folder_prepared
+TOK_0038_T03,token,ضع,ضع,ضع,ضع,S01,T03,S01_T03.mp4,Tokens/ضع/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ضع\S01_T03.mp4,True,token_folder_prepared
+TOK_0038_T04,token,ضع,ضع,ضع,ضع,S01,T04,S01_T04.mp4,Tokens/ضع/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ضع\S01_T04.mp4,True,token_folder_prepared
+TOK_0039_T01,token,طبيب,طبيب,طبيب,طبيب,S01,T01,S01_T01.mp4,Tokens/طبيب/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طبيب\S01_T01.mp4,True,token_folder_prepared
+TOK_0039_T02,token,طبيب,طبيب,طبيب,طبيب,S01,T02,S01_T02.mp4,Tokens/طبيب/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طبيب\S01_T02.mp4,True,token_folder_prepared
+TOK_0039_T03,token,طبيب,طبيب,طبيب,طبيب,S01,T03,S01_T03.mp4,Tokens/طبيب/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طبيب\S01_T03.mp4,True,token_folder_prepared
+TOK_0039_T04,token,طبيب,طبيب,طبيب,طبيب,S01,T04,S01_T04.mp4,Tokens/طبيب/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طبيب\S01_T04.mp4,True,token_folder_prepared
+TOK_0040_T01,token,طبيعي,طبيعي,طبيعي,طبيعي,S01,T01,S01_T01.mp4,Tokens/طبيعي/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طبيعي\S01_T01.mp4,True,token_folder_prepared
+TOK_0041_T01,token,طفح جلدي,طفح جلدي,طفح جلدي,طفح جلدي,S01,T01,S01_T01.mp4,Tokens/طفح جلدي/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طفح جلدي\S01_T01.mp4,True,token_folder_prepared
+TOK_0041_T02,token,طفح جلدي,طفح جلدي,طفح جلدي,طفح جلدي,S01,T02,S01_T02.mp4,Tokens/طفح جلدي/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طفح جلدي\S01_T02.mp4,True,token_folder_prepared
+TOK_0041_T03,token,طفح جلدي,طفح جلدي,طفح جلدي,طفح جلدي,S01,T03,S01_T03.mp4,Tokens/طفح جلدي/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طفح جلدي\S01_T03.mp4,True,token_folder_prepared
+TOK_0041_T04,token,طفح جلدي,طفح جلدي,طفح جلدي,طفح جلدي,S01,T04,S01_T04.mp4,Tokens/طفح جلدي/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\طفح جلدي\S01_T04.mp4,True,token_folder_prepared
+TOK_0042_T01,token,غالي,غالي,غالي,غالي,S01,T01,S01_T01.mp4,Tokens/غالي/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\غالي\S01_T01.mp4,True,token_folder_prepared
+TOK_0043_T01,token,فوراً,فوراً,فوراً,فوراً,S01,T01,S01_T01.mp4,Tokens/فوراً/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\فوراً\S01_T01.mp4,True,token_folder_prepared
+TOK_0043_T02,token,فوراً,فوراً,فوراً,فوراً,S01,T02,S01_T02.mp4,Tokens/فوراً/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\فوراً\S01_T02.mp4,True,token_folder_prepared
+TOK_0043_T03,token,فوراً,فوراً,فوراً,فوراً,S01,T03,S01_T03.mp4,Tokens/فوراً/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\فوراً\S01_T03.mp4,True,token_folder_prepared
+TOK_0043_T04,token,فوراً,فوراً,فوراً,فوراً,S01,T04,S01_T04.mp4,Tokens/فوراً/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\فوراً\S01_T04.mp4,True,token_folder_prepared
+TOK_0044_T01,token,قبل الأكل,قبل الأكل,قبل الأكل,قبل الأكل,S01,T01,S01_T01.mp4,Tokens/قبل الأكل/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل الأكل\S01_T01.mp4,True,token_folder_prepared
+TOK_0044_T02,token,قبل الأكل,قبل الأكل,قبل الأكل,قبل الأكل,S01,T02,S01_T02.mp4,Tokens/قبل الأكل/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل الأكل\S01_T02.mp4,True,token_folder_prepared
+TOK_0044_T03,token,قبل الأكل,قبل الأكل,قبل الأكل,قبل الأكل,S01,T03,S01_T03.mp4,Tokens/قبل الأكل/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل الأكل\S01_T03.mp4,True,token_folder_prepared
+TOK_0044_T04,token,قبل الأكل,قبل الأكل,قبل الأكل,قبل الأكل,S01,T04,S01_T04.mp4,Tokens/قبل الأكل/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل الأكل\S01_T04.mp4,True,token_folder_prepared
+TOK_0045_T01,token,قبل النوم,قبل النوم,قبل النوم,قبل النوم,S01,T01,S01_T01.mp4,Tokens/قبل النوم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل النوم\S01_T01.mp4,True,token_folder_prepared
+TOK_0045_T02,token,قبل النوم,قبل النوم,قبل النوم,قبل النوم,S01,T02,S01_T02.mp4,Tokens/قبل النوم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل النوم\S01_T02.mp4,True,token_folder_prepared
+TOK_0045_T03,token,قبل النوم,قبل النوم,قبل النوم,قبل النوم,S01,T03,S01_T03.mp4,Tokens/قبل النوم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل النوم\S01_T03.mp4,True,token_folder_prepared
+TOK_0045_T04,token,قبل النوم,قبل النوم,قبل النوم,قبل النوم,S01,T04,S01_T04.mp4,Tokens/قبل النوم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\قبل النوم\S01_T04.mp4,True,token_folder_prepared
+TOK_0046_T01,token,كبسولة,كبسولة,كبسولة,كبسولة,S01,T01,S01_T01.mp4,Tokens/كبسولة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كبسولة\S01_T01.mp4,True,token_folder_prepared
+TOK_0046_T02,token,كبسولة,كبسولة,كبسولة,كبسولة,S01,T02,S01_T02.mp4,Tokens/كبسولة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كبسولة\S01_T02.mp4,True,token_folder_prepared
+TOK_0046_T03,token,كبسولة,كبسولة,كبسولة,كبسولة,S01,T03,S01_T03.mp4,Tokens/كبسولة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كبسولة\S01_T03.mp4,True,token_folder_prepared
+TOK_0046_T04,token,كبسولة,كبسولة,كبسولة,كبسولة,S01,T04,S01_T04.mp4,Tokens/كبسولة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كبسولة\S01_T04.mp4,True,token_folder_prepared
+TOK_0047_T01,token,كريم,كريم,كريم,كريم,S01,T01,S01_T01.mp4,Tokens/كريم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كريم\S01_T01.mp4,True,token_folder_prepared
+TOK_0047_T02,token,كريم,كريم,كريم,كريم,S01,T02,S01_T02.mp4,Tokens/كريم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كريم\S01_T02.mp4,True,token_folder_prepared
+TOK_0047_T03,token,كريم,كريم,كريم,كريم,S01,T03,S01_T03.mp4,Tokens/كريم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كريم\S01_T03.mp4,True,token_folder_prepared
+TOK_0047_T04,token,كريم,كريم,كريم,كريم,S01,T04,S01_T04.mp4,Tokens/كريم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كريم\S01_T04.mp4,True,token_folder_prepared
+TOK_0048_T01,token,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,S01,T01,S01_T01.mp4,Tokens/كل ١٢ ساعة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ١٢ ساعة\S01_T01.mp4,True,token_folder_prepared
+TOK_0048_T02,token,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,S01,T02,S01_T02.mp4,Tokens/كل ١٢ ساعة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ١٢ ساعة\S01_T02.mp4,True,token_folder_prepared
+TOK_0048_T03,token,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,S01,T03,S01_T03.mp4,Tokens/كل ١٢ ساعة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ١٢ ساعة\S01_T03.mp4,True,token_folder_prepared
+TOK_0048_T04,token,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,S01,T04,S01_T04.mp4,Tokens/كل ١٢ ساعة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ١٢ ساعة\S01_T04.mp4,True,token_folder_prepared
+TOK_0048_T05,token,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,كل ١٢ ساعة,S01,T05,S01_T05.mp4,Tokens/كل ١٢ ساعة/S01_T05.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ١٢ ساعة\S01_T05.mp4,True,token_folder_prepared
+TOK_0049_T01,token,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,S01,T01,S01_T01.mp4,Tokens/كل ٨ ساعات/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ٨ ساعات\S01_T01.mp4,True,token_folder_prepared
+TOK_0049_T02,token,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,S01,T02,S01_T02.mp4,Tokens/كل ٨ ساعات/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ٨ ساعات\S01_T02.mp4,True,token_folder_prepared
+TOK_0049_T03,token,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,S01,T03,S01_T03.mp4,Tokens/كل ٨ ساعات/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ٨ ساعات\S01_T03.mp4,True,token_folder_prepared
+TOK_0049_T04,token,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,S01,T04,S01_T04.mp4,Tokens/كل ٨ ساعات/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ٨ ساعات\S01_T04.mp4,True,token_folder_prepared
+TOK_0049_T05,token,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,كل ٨ ساعات,S01,T05,S01_T05.mp4,Tokens/كل ٨ ساعات/S01_T05.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\كل ٨ ساعات\S01_T05.mp4,True,token_folder_prepared
+TOK_0050_T01,token,لمدة,لمدة,لمدة,لمدة,S01,T01,S01_T01.mp4,Tokens/لمدة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\لمدة\S01_T01.mp4,True,token_folder_prepared
+TOK_0050_T02,token,لمدة,لمدة,لمدة,لمدة,S01,T02,S01_T02.mp4,Tokens/لمدة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\لمدة\S01_T02.mp4,True,token_folder_prepared
+TOK_0050_T03,token,لمدة,لمدة,لمدة,لمدة,S01,T03,S01_T03.mp4,Tokens/لمدة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\لمدة\S01_T03.mp4,True,token_folder_prepared
+TOK_0050_T04,token,لمدة,لمدة,لمدة,لمدة,S01,T04,S01_T04.mp4,Tokens/لمدة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\لمدة\S01_T04.mp4,True,token_folder_prepared
+TOK_0051_T01,token,ماء,ماء,ماء,ماء,S01,T01,S01_T01.mp4,Tokens/ماء/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ماء\S01_T01.mp4,True,token_folder_prepared
+TOK_0051_T02,token,ماء,ماء,ماء,ماء,S01,T02,S01_T02.mp4,Tokens/ماء/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ماء\S01_T02.mp4,True,token_folder_prepared
+TOK_0051_T03,token,ماء,ماء,ماء,ماء,S01,T03,S01_T03.mp4,Tokens/ماء/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ماء\S01_T03.mp4,True,token_folder_prepared
+TOK_0052_T01,token,مرات باليوم,مرات باليوم,مرات باليوم,مرات باليوم,S01,T01,S01_T01.mp4,Tokens/مرات باليوم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرات باليوم\S01_T01.mp4,True,token_folder_prepared
+TOK_0052_T02,token,مرات باليوم,مرات باليوم,مرات باليوم,مرات باليوم,S01,T02,S01_T02.mp4,Tokens/مرات باليوم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرات باليوم\S01_T02.mp4,True,token_folder_prepared
+TOK_0052_T03,token,مرات باليوم,مرات باليوم,مرات باليوم,مرات باليوم,S01,T03,S01_T03.mp4,Tokens/مرات باليوم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرات باليوم\S01_T03.mp4,True,token_folder_prepared
+TOK_0052_T04,token,مرات باليوم,مرات باليوم,مرات باليوم,مرات باليوم,S01,T04,S01_T04.mp4,Tokens/مرات باليوم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرات باليوم\S01_T04.mp4,True,token_folder_prepared
+TOK_0053_T01,token,مرة واحدة,مرة واحدة,مرة واحدة,مرة واحدة,S01,T01,S01_T01.mp4,Tokens/مرة واحدة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرة واحدة\S01_T01.mp4,True,token_folder_prepared
+TOK_0053_T02,token,مرة واحدة,مرة واحدة,مرة واحدة,مرة واحدة,S01,T02,S01_T02.mp4,Tokens/مرة واحدة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرة واحدة\S01_T02.mp4,True,token_folder_prepared
+TOK_0053_T03,token,مرة واحدة,مرة واحدة,مرة واحدة,مرة واحدة,S01,T03,S01_T03.mp4,Tokens/مرة واحدة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرة واحدة\S01_T03.mp4,True,token_folder_prepared
+TOK_0053_T04,token,مرة واحدة,مرة واحدة,مرة واحدة,مرة واحدة,S01,T04,S01_T04.mp4,Tokens/مرة واحدة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرة واحدة\S01_T04.mp4,True,token_folder_prepared
+TOK_0054_T01,token,مرتفع,مرتفع,مرتفع,مرتفع,S01,T01,S01_T01.mp4,Tokens/مرتفع/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتفع\S01_T01.mp4,True,token_folder_prepared
+TOK_0055_T01,token,مرتين,مرتين,مرتين,مرتين,S01,T01,S01_T01.mp4,Tokens/مرتين/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتين\S01_T01.mp4,True,token_folder_prepared
+TOK_0055_T02,token,مرتين,مرتين,مرتين,مرتين,S01,T02,S01_T02.mp4,Tokens/مرتين/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتين\S01_T02.mp4,True,token_folder_prepared
+TOK_0055_T03,token,مرتين,مرتين,مرتين,مرتين,S01,T03,S01_T03.mp4,Tokens/مرتين/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتين\S01_T03.mp4,True,token_folder_prepared
+TOK_0055_T04,token,مرتين,مرتين,مرتين,مرتين,S01,T04,S01_T04.mp4,Tokens/مرتين/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتين\S01_T04.mp4,True,token_folder_prepared
+TOK_0055_T05,token,مرتين,مرتين,مرتين,مرتين,S01,T05,S01_T05.mp4,Tokens/مرتين/S01_T05.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرتين\S01_T05.mp4,True,token_folder_prepared
+TOK_0056_T01,token,مرهم,مرهم,مرهم,مرهم,S01,T01,S01_T01.mp4,Tokens/مرهم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرهم\S01_T01.mp4,True,token_folder_prepared
+TOK_0056_T02,token,مرهم,مرهم,مرهم,مرهم,S01,T02,S01_T02.mp4,Tokens/مرهم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرهم\S01_T02.mp4,True,token_folder_prepared
+TOK_0056_T03,token,مرهم,مرهم,مرهم,مرهم,S01,T03,S01_T03.mp4,Tokens/مرهم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مرهم\S01_T03.mp4,True,token_folder_prepared
+TOK_0057_T01,token,مستقر,مستقر,مستقر,مستقر,S01,T01,S01_T01.mp4,Tokens/مستقر/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مستقر\S01_T01.mp4,True,token_folder_prepared
+TOK_0058_T01,token,مع الأكل,مع الأكل,مع الأكل,مع الأكل,S01,T01,S01_T01.mp4,Tokens/مع الأكل/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مع الأكل\S01_T01.mp4,True,token_folder_prepared
+TOK_0058_T02,token,مع الأكل,مع الأكل,مع الأكل,مع الأكل,S01,T02,S01_T02.mp4,Tokens/مع الأكل/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مع الأكل\S01_T02.mp4,True,token_folder_prepared
+TOK_0058_T03,token,مع الأكل,مع الأكل,مع الأكل,مع الأكل,S01,T03,S01_T03.mp4,Tokens/مع الأكل/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مع الأكل\S01_T03.mp4,True,token_folder_prepared
+TOK_0058_T04,token,مع الأكل,مع الأكل,مع الأكل,مع الأكل,S01,T04,S01_T04.mp4,Tokens/مع الأكل/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\مع الأكل\S01_T04.mp4,True,token_folder_prepared
+TOK_0060_T01,token,معلقة كبيرة,معلقة كبيرة,معلقة كبيرة,معلقة كبيرة,S01,T01,S01_T01.mp4,Tokens/معلقة كبيرة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\معلقة كبيرة\S01_T01.mp4,True,token_folder_prepared
+TOK_0061_T01,token,ممكان بارد,ممكان بارد,ممكان بارد,ممكان بارد,S01,T01,S01_T01.mp4,Tokens/ممكان بارد/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممكان بارد\S01_T01.mp4,True,token_folder_prepared
+TOK_0061_T02,token,ممكان بارد,ممكان بارد,ممكان بارد,ممكان بارد,S01,T02,S01_T02.mp4,Tokens/ممكان بارد/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممكان بارد\S01_T02.mp4,True,token_folder_prepared
+TOK_0062_T01,token,ممنوع - لا,ممنوع - لا,ممنوع - لا,ممنوع - لا,S01,T01,S01_T01.mp4,Tokens/ممنوع - لا/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممنوع - لا\S01_T01.mp4,True,token_folder_prepared
+TOK_0062_T02,token,ممنوع - لا,ممنوع - لا,ممنوع - لا,ممنوع - لا,S01,T02,S01_T02.mp4,Tokens/ممنوع - لا/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممنوع - لا\S01_T02.mp4,True,token_folder_prepared
+TOK_0062_T03,token,ممنوع - لا,ممنوع - لا,ممنوع - لا,ممنوع - لا,S01,T03,S01_T03.mp4,Tokens/ممنوع - لا/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممنوع - لا\S01_T03.mp4,True,token_folder_prepared
+TOK_0062_T04,token,ممنوع - لا,ممنوع - لا,ممنوع - لا,ممنوع - لا,S01,T04,S01_T04.mp4,Tokens/ممنوع - لا/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\ممنوع - لا\S01_T04.mp4,True,token_folder_prepared
+TOK_0063_T01,token,منخفض,منخفض,منخفض,منخفض,S01,T01,S01_T01.mp4,Tokens/منخفض/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\منخفض\S01_T01.mp4,True,token_folder_prepared
+TOK_0064_T01,token,نصف حبة,نصف حبة,نصف حبة,نصف حبة,S01,T01,S01_T01.mp4,Tokens/نصف حبة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نصف حبة\S01_T01.mp4,True,token_folder_prepared
+TOK_0064_T02,token,نصف حبة,نصف حبة,نصف حبة,نصف حبة,S01,T02,S01_T02.mp4,Tokens/نصف حبة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نصف حبة\S01_T02.mp4,True,token_folder_prepared
+TOK_0065_T01,token,نصف ساعة,نصف ساعة,نصف ساعة,نصف ساعة,S01,T01,S01_T01.mp4,Tokens/نصف ساعة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نصف ساعة\S01_T01.mp4,True,token_folder_prepared
+TOK_0066_T01,token,نعاس,نعاس,نعاس,نعاس,S01,T01,S01_T01.mp4,Tokens/نعاس/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نعاس\S01_T01.mp4,True,token_folder_prepared
+TOK_0066_T02,token,نعاس,نعاس,نعاس,نعاس,S01,T02,S01_T02.mp4,Tokens/نعاس/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نعاس\S01_T02.mp4,True,token_folder_prepared
+TOK_0066_T03,token,نعاس,نعاس,نعاس,نعاس,S01,T03,S01_T03.mp4,Tokens/نعاس/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نعاس\S01_T03.mp4,True,token_folder_prepared
+TOK_0066_T04,token,نعاس,نعاس,نعاس,نعاس,S01,T04,S01_T04.mp4,Tokens/نعاس/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نعاس\S01_T04.mp4,True,token_folder_prepared
+TOK_0067_T01,token,نقطة,نقطة,نقطة,نقطة,S01,T01,S01_T01.mp4,Tokens/نقطة/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نقطة\S01_T01.mp4,True,token_folder_prepared
+TOK_0067_T02,token,نقطة,نقطة,نقطة,نقطة,S01,T02,S01_T02.mp4,Tokens/نقطة/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نقطة\S01_T02.mp4,True,token_folder_prepared
+TOK_0067_T03,token,نقطة,نقطة,نقطة,نقطة,S01,T03,S01_T03.mp4,Tokens/نقطة/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نقطة\S01_T03.mp4,True,token_folder_prepared
+TOK_0067_T04,token,نقطة,نقطة,نقطة,نقطة,S01,T04,S01_T04.mp4,Tokens/نقطة/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\نقطة\S01_T04.mp4,True,token_folder_prepared
+TOK_0068_T01,token,واحد,واحد,واحد,واحد,S01,T01,S01_T01.mp4,Tokens/واحد/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\واحد\S01_T01.mp4,True,token_folder_prepared
+TOK_0068_T02,token,واحد,واحد,واحد,واحد,S01,T02,S01_T02.mp4,Tokens/واحد/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\واحد\S01_T02.mp4,True,token_folder_prepared
+TOK_0068_T03,token,واحد,واحد,واحد,واحد,S01,T03,S01_T03.mp4,Tokens/واحد/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\واحد\S01_T03.mp4,True,token_folder_prepared
+TOK_0068_T04,token,واحد,واحد,واحد,واحد,S01,T04,S01_T04.mp4,Tokens/واحد/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\واحد\S01_T04.mp4,True,token_folder_prepared
+TOK_0069_T01,token,يوم,يوم,يوم,يوم,S01,T01,S01_T01.mp4,Tokens/يوم/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يوم\S01_T01.mp4,True,token_folder_prepared
+TOK_0069_T02,token,يوم,يوم,يوم,يوم,S01,T02,S01_T02.mp4,Tokens/يوم/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يوم\S01_T02.mp4,True,token_folder_prepared
+TOK_0069_T03,token,يوم,يوم,يوم,يوم,S01,T03,S01_T03.mp4,Tokens/يوم/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يوم\S01_T03.mp4,True,token_folder_prepared
+TOK_0069_T04,token,يوم,يوم,يوم,يوم,S01,T04,S01_T04.mp4,Tokens/يوم/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يوم\S01_T04.mp4,True,token_folder_prepared
+TOK_0070_T01,token,يومياً,يومياً,يومياً,يومياً,S01,T01,S01_T01.mp4,Tokens/يومياً/S01_T01.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يومياً\S01_T01.mp4,True,token_folder_prepared
+TOK_0070_T02,token,يومياً,يومياً,يومياً,يومياً,S01,T02,S01_T02.mp4,Tokens/يومياً/S01_T02.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يومياً\S01_T02.mp4,True,token_folder_prepared
+TOK_0070_T03,token,يومياً,يومياً,يومياً,يومياً,S01,T03,S01_T03.mp4,Tokens/يومياً/S01_T03.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يومياً\S01_T03.mp4,True,token_folder_prepared
+TOK_0070_T04,token,يومياً,يومياً,يومياً,يومياً,S01,T04,S01_T04.mp4,Tokens/يومياً/S01_T04.mp4,C:\Users\alaan\Desktop\Sign_Tokens\Tokens\يومياً\S01_T04.mp4,True,token_folder_prepared

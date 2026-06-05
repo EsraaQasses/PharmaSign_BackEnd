@@ -56,7 +56,7 @@ class PatientProfileAdmin(admin.ModelAdmin):
 @admin.register(PatientMedicalInfo)
 class PatientMedicalInfoAdmin(admin.ModelAdmin):
     list_display = ("patient", "is_pregnant", "is_breastfeeding", "updated_at")
-    search_fields = ("patient__full_name", "patient__user__email", "allergies")
+    search_fields = ("patient__full_name", "patient__user__email")
     autocomplete_fields = ("patient",)
 
 

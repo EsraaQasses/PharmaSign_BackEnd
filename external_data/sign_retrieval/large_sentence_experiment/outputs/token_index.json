@@ -1,0 +1,692 @@
+{
+  "ابلع": [
+    {
+      "id": "TOK_0001_T01",
+      "video_path": "Tokens/ابلع.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ابلع.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ابلع"
+    }
+  ],
+  "اثنين": [
+    {
+      "id": "TOK_0002_T01",
+      "video_path": "Tokens/اثنين.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اثنين.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اثنين"
+    }
+  ],
+  "اذا": [
+    {
+      "id": "TOK_0003_T01",
+      "video_path": "Tokens/اذا.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اذا.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اذا"
+    }
+  ],
+  "اربعه": [
+    {
+      "id": "TOK_0004_T01",
+      "video_path": "Tokens/اربعة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اربعة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اربعه"
+    }
+  ],
+  "اسبوع": [
+    {
+      "id": "TOK_0005_T01",
+      "video_path": "Tokens/اسبوع.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسبوع.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اسبوع"
+    }
+  ],
+  "استخدم": [
+    {
+      "id": "TOK_0006_T01",
+      "video_path": "Tokens/استخدم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/استخدم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "استخدم"
+    }
+  ],
+  "اسعاف": [
+    {
+      "id": "TOK_0007_T01",
+      "video_path": "Tokens/اسعاف.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسعاف.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اسعاف"
+    }
+  ],
+  "اسهال": [
+    {
+      "id": "TOK_0008_T01",
+      "video_path": "Tokens/اسهال.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسهال.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اسهال"
+    }
+  ],
+  "اشرب": [
+    {
+      "id": "TOK_0009_T01",
+      "video_path": "Tokens/اشرب.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اشرب.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اشرب"
+    }
+  ],
+  "الاذن": [
+    {
+      "id": "TOK_0010_T01",
+      "video_path": "Tokens/الاذن.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الاذن.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الاذن"
+    }
+  ],
+  "الانف": [
+    {
+      "id": "TOK_0011_T01",
+      "video_path": "Tokens/الانف.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الانف.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الانف"
+    }
+  ],
+  "الجلد": [
+    {
+      "id": "TOK_0012_T01",
+      "video_path": "Tokens/الجلد.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الجلد.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الجلد"
+    }
+  ],
+  "الصباح": [
+    {
+      "id": "TOK_0013_T01",
+      "video_path": "Tokens/الصباح.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الصباح.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الصباح"
+    }
+  ],
+  "العين": [
+    {
+      "id": "TOK_0014_T01",
+      "video_path": "Tokens/العين.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/العين.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "العين"
+    }
+  ],
+  "الفم": [
+    {
+      "id": "TOK_0015_T01",
+      "video_path": "Tokens/الفم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الفم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الفم"
+    }
+  ],
+  "الليل": [
+    {
+      "id": "TOK_0016_T01",
+      "video_path": "Tokens/الليل.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الليل.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "الليل"
+    }
+  ],
+  "انتبه": [
+    {
+      "id": "TOK_0017_T01",
+      "video_path": "Tokens/انتبه.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/انتبه.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "انتبه"
+    }
+  ],
+  "انتظر": [
+    {
+      "id": "TOK_0018_T01",
+      "video_path": "Tokens/انتظر.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/انتظر.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "انتظر"
+    }
+  ],
+  "اوقف": [
+    {
+      "id": "TOK_0019_T01",
+      "video_path": "Tokens/اوقف.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اوقف.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "اوقف"
+    }
+  ],
+  "بخه": [
+    {
+      "id": "TOK_0020_T01",
+      "video_path": "Tokens/بخة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بخة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "بخه"
+    }
+  ],
+  "براد": [
+    {
+      "id": "TOK_0021_T01",
+      "video_path": "Tokens/براد.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/براد.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "براد"
+    }
+  ],
+  "بعد الاكل": [
+    {
+      "id": "TOK_0022_T01",
+      "video_path": "Tokens/بعد الاكل.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بعد الاكل.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "بعد الاكل"
+    }
+  ],
+  "بعيد عن الاطفال": [
+    {
+      "id": "TOK_0023_T01",
+      "video_path": "Tokens/بعيد عن الاطفال.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بعيد عن الاطفال.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "بعيد عن الاطفال"
+    }
+  ],
+  "ثلاث مرات": [
+    {
+      "id": "TOK_0024_T01",
+      "video_path": "Tokens/ثلاث مرات.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ثلاث مرات.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ثلاث مرات"
+    }
+  ],
+  "ثلاثه": [
+    {
+      "id": "TOK_0025_T01",
+      "video_path": "Tokens/ثلاثة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ثلاثة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ثلاثه"
+    }
+  ],
+  "حبه": [
+    {
+      "id": "TOK_0026_T01",
+      "video_path": "Tokens/حبة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حبة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "حبه"
+    }
+  ],
+  "حراره الغرفه": [
+    {
+      "id": "TOK_0027_T01",
+      "video_path": "Tokens/حرارة الغرفة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حرارة الغرفة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "حراره الغرفه"
+    }
+  ],
+  "حساسيه": [
+    {
+      "id": "TOK_0028_T01",
+      "video_path": "Tokens/حساسية.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حساسية.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "حساسيه"
+    }
+  ],
+  "خذ": [
+    {
+      "id": "TOK_0029_T01",
+      "video_path": "Tokens/خذ.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/خذ.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "خذ"
+    }
+  ],
+  "خمسه": [
+    {
+      "id": "TOK_0030_T01",
+      "video_path": "Tokens/خمسة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/خمسة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "خمسه"
+    }
+  ],
+  "دوخه": [
+    {
+      "id": "TOK_0031_T01",
+      "video_path": "Tokens/دوخة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/دوخة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "دوخه"
+    }
+  ],
+  "رج": [
+    {
+      "id": "TOK_0032_T01",
+      "video_path": "Tokens/رج.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/رج.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "رج"
+    }
+  ],
+  "رخيص": [
+    {
+      "id": "TOK_0033_T01",
+      "video_path": "Tokens/رخيص.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/رخيص.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "رخيص"
+    }
+  ],
+  "شديد": [
+    {
+      "id": "TOK_0034_T01",
+      "video_path": "Tokens/شديد.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/شديد.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "شديد"
+    }
+  ],
+  "شراب": [
+    {
+      "id": "TOK_0035_T01",
+      "video_path": "Tokens/شراب.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/شراب.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "شراب"
+    }
+  ],
+  "صافي": [
+    {
+      "id": "TOK_0036_T01",
+      "video_path": "Tokens/صافي.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/صافي.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "صافي"
+    }
+  ],
+  "صعوبه تنفس": [
+    {
+      "id": "TOK_0037_T01",
+      "video_path": "Tokens/صعوبة تنفس.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/صعوبة تنفس.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "صعوبه تنفس"
+    }
+  ],
+  "ضع": [
+    {
+      "id": "TOK_0038_T01",
+      "video_path": "Tokens/ضع.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ضع.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ضع"
+    }
+  ],
+  "طبيب": [
+    {
+      "id": "TOK_0039_T01",
+      "video_path": "Tokens/طبيب.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طبيب.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "طبيب"
+    }
+  ],
+  "طبيعي": [
+    {
+      "id": "TOK_0040_T01",
+      "video_path": "Tokens/طبيعي.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طبيعي.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "طبيعي"
+    }
+  ],
+  "طفح جلدي": [
+    {
+      "id": "TOK_0041_T01",
+      "video_path": "Tokens/طفح جلدي.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طفح جلدي.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "طفح جلدي"
+    }
+  ],
+  "غالي": [
+    {
+      "id": "TOK_0042_T01",
+      "video_path": "Tokens/غالي.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/غالي.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "غالي"
+    }
+  ],
+  "فورا": [
+    {
+      "id": "TOK_0043_T01",
+      "video_path": "Tokens/فوراً.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/فوراً.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "فورا"
+    }
+  ],
+  "قبل الاكل": [
+    {
+      "id": "TOK_0044_T01",
+      "video_path": "Tokens/قبل الاكل.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/قبل الاكل.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "قبل الاكل"
+    }
+  ],
+  "قبل النوم": [
+    {
+      "id": "TOK_0045_T01",
+      "video_path": "Tokens/قبل النوم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/قبل النوم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "قبل النوم"
+    }
+  ],
+  "كبسوله": [
+    {
+      "id": "TOK_0046_T01",
+      "video_path": "Tokens/كبسولة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كبسولة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "كبسوله"
+    }
+  ],
+  "كريم": [
+    {
+      "id": "TOK_0047_T01",
+      "video_path": "Tokens/كريم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كريم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "كريم"
+    }
+  ],
+  "كل 12 ساعه": [
+    {
+      "id": "TOK_0048_T01",
+      "video_path": "Tokens/كل 12 ساعة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كل 12 ساعة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "كل 12 ساعه"
+    }
+  ],
+  "كل 8 ساعات": [
+    {
+      "id": "TOK_0049_T01",
+      "video_path": "Tokens/كل 8 ساعات.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كل 8 ساعات.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "كل 8 ساعات"
+    }
+  ],
+  "لمده": [
+    {
+      "id": "TOK_0050_T01",
+      "video_path": "Tokens/لمدة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/لمدة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "لمده"
+    }
+  ],
+  "ماء": [
+    {
+      "id": "TOK_0051_T01",
+      "video_path": "Tokens/ماء.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ماء.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ماء"
+    }
+  ],
+  "مرات باليوم": [
+    {
+      "id": "TOK_0052_T01",
+      "video_path": "Tokens/مرات باليوم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرات باليوم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مرات باليوم"
+    }
+  ],
+  "مرتفع": [
+    {
+      "id": "TOK_0053_T01",
+      "video_path": "Tokens/مرتفع.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرتفع.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مرتفع"
+    }
+  ],
+  "مرتين": [
+    {
+      "id": "TOK_0054_T01",
+      "video_path": "Tokens/مرتين.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرتين.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مرتين"
+    }
+  ],
+  "مره واحده": [
+    {
+      "id": "TOK_0055_T01",
+      "video_path": "Tokens/مره واحده.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مره واحده.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مره واحده"
+    }
+  ],
+  "مرهم": [
+    {
+      "id": "TOK_0056_T01",
+      "video_path": "Tokens/مرهم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرهم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مرهم"
+    }
+  ],
+  "مستقر": [
+    {
+      "id": "TOK_0057_T01",
+      "video_path": "Tokens/مستقر.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مستقر.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مستقر"
+    }
+  ],
+  "مع الاكل": [
+    {
+      "id": "TOK_0058_T01",
+      "video_path": "Tokens/مع الاكل.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مع الاكل.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "مع الاكل"
+    }
+  ],
+  "معلقه كبيره": [
+    {
+      "id": "TOK_0059_T01",
+      "video_path": "Tokens/معلقة كبيرة.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/معلقة كبيرة.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "معلقه كبيره"
+    }
+  ],
+  "ممكان بارد": [
+    {
+      "id": "TOK_0060_T01",
+      "video_path": "Tokens/ممكان بارد.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ممكان بارد.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ممكان بارد"
+    }
+  ],
+  "ممنوع لا": [
+    {
+      "id": "TOK_0061_T01",
+      "video_path": "Tokens/ممنوع لا.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ممنوع لا.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "ممنوع لا"
+    }
+  ],
+  "منخفض": [
+    {
+      "id": "TOK_0062_T01",
+      "video_path": "Tokens/منخفض.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/منخفض.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "منخفض"
+    }
+  ],
+  "نصف حبه": [
+    {
+      "id": "TOK_0063_T01",
+      "video_path": "Tokens/نصف حبه.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نصف حبه.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "نصف حبه"
+    }
+  ],
+  "نصف ساعه": [
+    {
+      "id": "TOK_0064_T01",
+      "video_path": "Tokens/نصف ساعه.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نصف ساعه.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "نصف ساعه"
+    }
+  ],
+  "نعاس": [
+    {
+      "id": "TOK_0065_T01",
+      "video_path": "Tokens/نعاس.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نعاس.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "نعاس"
+    }
+  ],
+  "نقطه": [
+    {
+      "id": "TOK_0066_T01",
+      "video_path": "Tokens/نقطة .mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نقطة .mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "نقطه"
+    }
+  ],
+  "واحد": [
+    {
+      "id": "TOK_0067_T01",
+      "video_path": "Tokens/واحد.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/واحد.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "واحد"
+    }
+  ],
+  "يوم": [
+    {
+      "id": "TOK_0068_T01",
+      "video_path": "Tokens/يوم.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/يوم.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "يوم"
+    }
+  ],
+  "يوميا": [
+    {
+      "id": "TOK_0069_T01",
+      "video_path": "Tokens/يوميا.mp4",
+      "absolute_video_path": "C:/Users/alaan/Desktop/Sign_Tokens/Tokens/يوميا.mp4",
+      "signer_id": "S01",
+      "take_id": "T01",
+      "source_text": "يوميا"
+    }
+  ]
+}

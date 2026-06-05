@@ -1,257 +1,62 @@
-import sys
+import logging
 import os
 import shutil
-import logging
+import sys
+import tempfile
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
+from uuid import uuid4
 
-import numpy as np
 import cv2
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from matplotlib.animation import writers
 from pydantic import BaseModel
 
-# ------------------------------------------------------------
-# 1. LOGGING SETUP
-# ------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("ai_service")
 
-# ------------------------------------------------------------
-# 2. DYNAMIC PATH CONFIGURATION
-# ------------------------------------------------------------
-PROJECT_ROOT = Path(r"C:\Users\alaan\Desktop\SignData_Prepared\large_sentence_experiment")
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(str(PROJECT_ROOT))
-    logger.info(f"Added {PROJECT_ROOT} to sys.path")
+try:
+    from ai_service.avatar_renderer import render_avatar_from_npy
+except Exception as exc:
+    render_avatar_from_npy = None
+    logger.exception("Failed to import PharmaSign avatar renderer: %s", exc)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_GENERATED_DIR = MEDIA_ROOT / "generated"
+POSE_OUTPUT_DIR = MEDIA_GENERATED_DIR / "poses"
+SKELETON_VIDEO_OUTPUT_DIR = MEDIA_GENERATED_DIR / "skeleton_videos"
+AVATAR_VIDEO_OUTPUT_DIR = MEDIA_GENERATED_DIR / "avatar_videos"
+SIGN_RETRIEVAL_PROJECT_ROOT = Path(
+    os.getenv(
+        "SIGN_RETRIEVAL_PROJECT_ROOT",
+        str(BASE_DIR / "external_data" / "sign_retrieval" / "large_sentence_experiment"),
+    )
+).resolve()
+
+if str(SIGN_RETRIEVAL_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SIGN_RETRIEVAL_PROJECT_ROOT))
 
 try:
     from src.sign_retrieval.generator import SignGenerator
+    from src.sign_retrieval.gloss_normalizer import normalize_gloss_to_vocabulary
     from src.sign_retrieval import config
-except ImportError as e:
-    logger.error(f"Failed to import SignGenerator from {PROJECT_ROOT}. Verify the path exists and contains src/sign_retrieval.")
-    raise e
+except Exception as exc:
+    SignGenerator = None
+    normalize_gloss_to_vocabulary = None
+    config = None
+    logger.exception("Failed to import original SignGenerator retrieval system: %s", exc)
 
-# ------------------------------------------------------------
-# 3. GLOBAL GENERATOR IMPLEMENTATION WITH CACHED RESOURCES
-# ------------------------------------------------------------
-class CachedSignGenerator(SignGenerator):
-    """
-    Subclass of SignGenerator that overrides resource loading 
-    to cache files globally on startup instead of reloading on every request.
-    """
-    def __init__(self):
-        super().__init__()
-        self._loaded_metadata = {}
-        self._index_loaded = False
-        self._alias_loaded = False
-        self._semantic_loaded = False
+for output_dir in (POSE_OUTPUT_DIR, SKELETON_VIDEO_OUTPUT_DIR, AVATAR_VIDEO_OUTPUT_DIR):
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_resources(self, pose_format: str = "576"):
-        # Load index only once
-        if not self._index_loaded:
-            try:
-                with open(config.TOKEN_INDEX_PATH, "r", encoding="utf-8") as f:
-                    self.token_index = json.load(f)
-                self._index_loaded = True
-                logger.info("Token index successfully loaded and cached.")
-            except Exception as e:
-                # SignGenerator has json module imported, we handle fallback
-                import json
-                with open(config.TOKEN_INDEX_PATH, "r", encoding="utf-8") as f:
-                    self.token_index = json.load(f)
-                self._index_loaded = True
-                logger.info("Token index successfully loaded and cached (fallback).")
-        
-        # Load aliases only once
-        if not self._alias_loaded:
-            from src.sign_retrieval.text_normalization import load_alias_map
-            self.alias_map = load_alias_map()
-            self._alias_loaded = True
-            logger.info("Alias map successfully loaded and cached.")
-            
-        # Load semantic embeddings index only once
-        if not self._semantic_loaded:
-            self.semantic_matcher.load_cached_embeddings()
-            self._semantic_loaded = True
-            logger.info("Semantic matcher embeddings loaded and cached.")
-            
-        # Cache pose-format specific metadata to avoid disk-reads on every request
-        if pose_format in self._loaded_metadata:
-            self.pose_metadata_df = self._loaded_metadata[pose_format]
-        else:
-            metadata_path = config.TOKEN_POSE_FULL_METADATA_PATH if pose_format == "full" else config.TOKEN_POSE_METADATA_PATH
-            if metadata_path.exists():
-                import pandas as pd
-                try:
-                    self.pose_metadata_df = pd.read_csv(metadata_path)
-                    self._loaded_metadata[pose_format] = self.pose_metadata_df
-                    logger.info(f"Loaded and cached pose metadata for format '{pose_format}'.")
-                except Exception as e:
-                    logger.warning(f"Could not load pose metadata: {e}")
-                    self.pose_metadata_df = None
-            else:
-                logger.warning(f"Pose metadata path not found: {metadata_path}")
-                self.pose_metadata_df = None
-
-# Initialize and pre-load resource caches globally
-logger.info("Initializing and pre-loading SignGenerator...")
-generator = CachedSignGenerator()
-generator.load_resources(pose_format="full")
-generator.load_resources(pose_format="576")
-logger.info("SignGenerator is fully pre-loaded and ready.")
-
-# ------------------------------------------------------------
-# 4. SKELETON VIDEO RENDERING UTILITY
-# ------------------------------------------------------------
-HAND_CONNECTIONS = [
-    (0, 1), (1, 2), (2, 3), (3, 4),      # Thumb
-    (0, 5), (5, 6), (6, 7), (7, 8),      # Index
-    (5, 9), (9, 10), (10, 11), (11, 12),  # Middle
-    (9, 13), (13, 14), (14, 15), (15, 16), # Ring
-    (13, 17), (17, 18), (18, 19), (19, 20), # Pinky
-    (0, 17)
-]
-
-POSE_CONNECTIONS = [
-    (11, 12),              # Shoulder to shoulder
-    (11, 13), (13, 15),    # Left arm
-    (12, 14), (14, 16),    # Right arm
-    (11, 23), (12, 24),    # Shoulders to hips
-    (23, 24)               # Hip to hip
-]
-
-def render_pose_video(input_path: Path, output_path: Path, pose_format: str, width: int = 900, height: int = 900, fps: int = 25):
-    """
-    Renders 2D skeleton video from a pose NPY file.
-    Replicates the drawing logic of scripts/06_render_pose_video.py.
-    """
-    logger.info(f"Rendering skeleton video from {input_path} to {output_path} (Format: {pose_format})")
-    pose = np.load(input_path)
-    T, D = pose.shape
-    
-    if pose_format == "full":
-        expected_pose_dim = 1629
-        num_landmarks = 543
-        num_coords = 3
-        POSE_OFFSET = 0
-        FACE_OFFSET = 33
-        LEFT_HAND_OFFSET = 501
-        RIGHT_HAND_OFFSET = 522
-    else:
-        expected_pose_dim = 576
-        num_landmarks = 144
-        num_coords = 4
-        POSE_OFFSET = 0
-        LEFT_HAND_OFFSET = 33
-        RIGHT_HAND_OFFSET = 54
-        FACE_OFFSET = 75
-        
-    if D != expected_pose_dim:
-        raise ValueError(f"Expected pose dimension {expected_pose_dim} for format '{pose_format}', got {D}.")
-        
-    landmarks = pose.reshape(T, num_landmarks, num_coords)
-    
-    # Global normalization for scaling and centering
-    all_x = []
-    all_y = []
-    for t in range(T):
-        for lm_idx in range(num_landmarks):
-            x = landmarks[t, lm_idx, 0]
-            y = landmarks[t, lm_idx, 1]
-            if x != 0.0 or y != 0.0:
-                all_x.append(x)
-                all_y.append(y)
-                
-    if not all_x or not all_y:
-        raise ValueError("Pose file contains only zeros.")
-        
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
-    
-    cx_pose = (min_x + max_x) / 2.0
-    cy_pose = (min_y + max_y) / 2.0
-    
-    span_x = max(max_x - min_x, 1e-5)
-    span_y = max(max_y - min_y, 1e-5)
-    
-    target_span_x = width * 0.85
-    target_span_y = height * 0.85
-    
-    scale = min(target_span_x / span_x, target_span_y / span_y)
-    cx_screen = width / 2.0
-    cy_screen = height / 2.0
-    
-    def to_screen(x, y):
-        screen_x = int(cx_screen + (x - cx_pose) * scale)
-        screen_y = int(cy_screen + (y - cy_pose) * scale)
-        return screen_x, screen_y
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-    
-    try:
-        for t in range(T):
-            frame_img = np.zeros((height, width, 3), dtype=np.uint8)
-            points = {}
-            for lm_idx in range(num_landmarks):
-                x = landmarks[t, lm_idx, 0]
-                y = landmarks[t, lm_idx, 1]
-                v = 1.0 if num_coords < 4 else landmarks[t, lm_idx, 3]
-                
-                if x != 0.0 or y != 0.0:
-                    px, py = to_screen(x, y)
-                    points[lm_idx] = (px, py, v)
-            
-            # Draw Connections
-            for (a, b) in POSE_CONNECTIONS:
-                if a in points and b in points:
-                    cv2.line(frame_img, points[a][:2], points[b][:2], (100, 255, 100), 2)
-                    
-            for (a, b) in HAND_CONNECTIONS:
-                la = LEFT_HAND_OFFSET + a
-                lb = LEFT_HAND_OFFSET + b
-                if la in points and lb in points:
-                    cv2.line(frame_img, points[la][:2], points[lb][:2], (255, 0, 180), 2)
-                    
-            for (a, b) in HAND_CONNECTIONS:
-                ra = RIGHT_HAND_OFFSET + a
-                rb = RIGHT_HAND_OFFSET + b
-                if ra in points and rb in points:
-                    cv2.line(frame_img, points[ra][:2], points[rb][:2], (0, 255, 255), 2)
-                    
-            # Draw joints / circles
-            face_end = FACE_OFFSET + 468 if pose_format == "full" else 144
-            for lm_idx in range(FACE_OFFSET, face_end):
-                if lm_idx in points:
-                    cv2.circle(frame_img, points[lm_idx][:2], 1, (200, 200, 200), -1)
-                    
-            for lm_idx in range(POSE_OFFSET, POSE_OFFSET + 33):
-                if lm_idx in points:
-                    cv2.circle(frame_img, points[lm_idx][:2], 4, (255, 150, 0), -1)
-                    
-            hand_end = RIGHT_HAND_OFFSET + 21 if pose_format == "full" else FACE_OFFSET
-            for lm_idx in range(LEFT_HAND_OFFSET, hand_end):
-                if lm_idx in points:
-                    cv2.circle(frame_img, points[lm_idx][:2], 3, (0, 100, 255), -1)
-                    
-            writer.write(frame_img)
-    finally:
-        writer.release()
-    logger.info(f"Skeleton video rendering finished successfully: {output_path}")
-
-# ------------------------------------------------------------
-# 5. FASTAPI APP SETUP
-# ------------------------------------------------------------
-app = FastAPI(title="PharmaSign AI Retrieval Pose Service", version="1.0.0")
-
-# Setup CORS
+app = FastAPI(title="PharmaSign Gloss-to-Pose Retrieval Service", version="2.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -259,133 +64,356 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount(
+    "/media/generated",
+    StaticFiles(directory=str(MEDIA_GENERATED_DIR)),
+    name="media_generated",
+)
 
-# Directory configurations
-OUTPUT_DIR = Path("outputs/generated")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17),
+]
 
-GENERATED_OUTPUTS_DIR = Path("generated_outputs")
-GENERATED_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+POSE_CONNECTIONS = [
+    (11, 12),
+    (11, 13), (13, 15),
+    (12, 14), (14, 16),
+    (11, 23), (12, 24),
+    (23, 24),
+]
 
-# Mount Static Files to serve generated output media
-app.mount("/media/generated", StaticFiles(directory=str(OUTPUT_DIR)), name="generated")
 
-# ------------------------------------------------------------
-# 6. PYDANTIC REQUEST SCHEMAS
-# ------------------------------------------------------------
 class GenerateRequest(BaseModel):
     text: Optional[str] = None
     gloss: Optional[str] = None
     pose_format: Optional[str] = None
     return_format: Optional[str] = None
-    return_video: Optional[bool] = True
+    return_video: Optional[bool] = False
+    return_avatar: Optional[bool] = False
+    debug_segments: Optional[bool] = False
 
-# ------------------------------------------------------------
-# 7. ENDPOINTS
-# ------------------------------------------------------------
+
+class CachedSignGenerator(SignGenerator if SignGenerator is not None else object):
+    def __init__(self):
+        if SignGenerator is None:
+            raise RuntimeError("SignGenerator is not available.")
+        super().__init__()
+        self._resources_loaded_by_format: set[str] = set()
+
+    def load_resources(self, pose_format: str = "576"):
+        if pose_format in self._resources_loaded_by_format:
+            return
+        super().load_resources(pose_format=pose_format)
+        self._resources_loaded_by_format.add(pose_format)
+
+
+generator = CachedSignGenerator() if SignGenerator is not None else None
+
+
+def _normalize_pose_format(request: GenerateRequest) -> str:
+    if request.pose_format:
+        requested = request.pose_format.lower().strip()
+    elif request.return_avatar:
+        requested = "full"
+    else:
+        requested = (request.return_format or "576").lower().strip()
+    if requested in {"npy", "json", "pose", "default"}:
+        return "576"
+    if requested in {"576", "full"}:
+        return requested
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid pose format. Supported values: '576', 'full', 'npy', or 'json'.",
+    )
+
+
+def _media_url(path: Path | None) -> str | None:
+    if not path:
+        return None
+    try:
+        relative_path = path.resolve().relative_to(MEDIA_ROOT.resolve())
+    except ValueError:
+        return None
+    return f"/media/{relative_path.as_posix()}"
+
+
+def render_pose_video(
+    input_path: Path,
+    output_path: Path,
+    pose_format: str,
+    width: int = 900,
+    height: int = 900,
+    fps: int = 25,
+):
+    pose = np.load(input_path)
+    frame_count, pose_dim = pose.shape
+
+    if pose_format == "full":
+        expected_pose_dim = 1629
+        num_landmarks = 543
+        num_coords = 3
+        face_offset = 33
+        left_hand_offset = 501
+        right_hand_offset = 522
+    else:
+        expected_pose_dim = 576
+        num_landmarks = 144
+        num_coords = 4
+        face_offset = 75
+        left_hand_offset = 33
+        right_hand_offset = 54
+
+    if pose_dim != expected_pose_dim:
+        raise ValueError(
+            f"Expected pose dimension {expected_pose_dim} for format '{pose_format}', got {pose_dim}."
+        )
+
+    landmarks = pose.reshape(frame_count, num_landmarks, num_coords)
+    valid_xy = landmarks[:, :, :2][np.any(landmarks[:, :, :2] != 0.0, axis=2)]
+    if valid_xy.size == 0:
+        raise ValueError("Pose file contains only zeros.")
+
+    min_x, min_y = valid_xy.min(axis=0)
+    max_x, max_y = valid_xy.max(axis=0)
+    center_x = (min_x + max_x) / 2.0
+    center_y = (min_y + max_y) / 2.0
+    scale = min(width * 0.85 / max(max_x - min_x, 1e-5), height * 0.85 / max(max_y - min_y, 1e-5))
+
+    def to_screen(x, y):
+        return int(width / 2.0 + (x - center_x) * scale), int(height / 2.0 + (y - center_y) * scale)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
+
+    try:
+        for frame_idx in range(frame_count):
+            frame_img = np.zeros((height, width, 3), dtype=np.uint8)
+            points = {}
+            for landmark_idx in range(num_landmarks):
+                x = landmarks[frame_idx, landmark_idx, 0]
+                y = landmarks[frame_idx, landmark_idx, 1]
+                if x != 0.0 or y != 0.0:
+                    points[landmark_idx] = to_screen(x, y)
+
+            for a, b in POSE_CONNECTIONS:
+                if a in points and b in points:
+                    cv2.line(frame_img, points[a], points[b], (100, 255, 100), 2)
+
+            for offset, color in ((left_hand_offset, (255, 0, 180)), (right_hand_offset, (0, 255, 255))):
+                for a, b in HAND_CONNECTIONS:
+                    la = offset + a
+                    lb = offset + b
+                    if la in points and lb in points:
+                        cv2.line(frame_img, points[la], points[lb], color, 2)
+
+            face_end = face_offset + 468 if pose_format == "full" else 144
+            for landmark_idx in range(face_offset, face_end):
+                if landmark_idx in points:
+                    cv2.circle(frame_img, points[landmark_idx], 1, (200, 200, 200), -1)
+
+            for landmark_idx in range(33):
+                if landmark_idx in points:
+                    cv2.circle(frame_img, points[landmark_idx], 4, (255, 150, 0), -1)
+
+            writer.write(frame_img)
+    finally:
+        writer.release()
+
+
 @app.get("/health")
 def health_check():
+    token_index_path = getattr(config, "TOKEN_INDEX_PATH", None) if config is not None else None
+    cleaned_pose_dir = getattr(config, "CLEANED_POSE_DIR", None) if config is not None else None
+    cleaned_pose_full_dir = getattr(config, "CLEANED_POSE_FULL_DIR", None) if config is not None else None
+
+    ready = (
+        SignGenerator is not None
+        and SIGN_RETRIEVAL_PROJECT_ROOT.exists()
+        and token_index_path is not None
+        and Path(token_index_path).exists()
+        and cleaned_pose_dir is not None
+        and Path(cleaned_pose_dir).exists()
+    )
     return {
-        "status": "ok",
-        "service": "PharmaSign AI Retrieval Pose Service",
-        "generator_loaded": True
+        "status": "ok" if ready else "error",
+        "service": "PharmaSign Gloss-to-Pose Retrieval Service",
+        "retrieval_type": "original_sign_generator_pose_retrieval",
+        "project_root": str(SIGN_RETRIEVAL_PROJECT_ROOT),
+        "project_root_exists": SIGN_RETRIEVAL_PROJECT_ROOT.exists(),
+        "token_index_path": str(token_index_path) if token_index_path else None,
+        "token_index_exists": Path(token_index_path).exists() if token_index_path else False,
+        "cleaned_pose_dir": str(cleaned_pose_dir) if cleaned_pose_dir else None,
+        "cleaned_pose_dir_exists": Path(cleaned_pose_dir).exists() if cleaned_pose_dir else False,
+        "cleaned_pose_full_dir": str(cleaned_pose_full_dir) if cleaned_pose_full_dir else None,
+        "cleaned_pose_full_dir_exists": Path(cleaned_pose_full_dir).exists() if cleaned_pose_full_dir else False,
+        "pose_output_dir": str(POSE_OUTPUT_DIR),
+        "skeleton_video_output_dir": str(SKELETON_VIDEO_OUTPUT_DIR),
+        "avatar_video_output_dir": str(AVATAR_VIDEO_OUTPUT_DIR),
+        "avatar_renderer_available": render_avatar_from_npy is not None,
+        "ffmpeg_available": writers.is_available("ffmpeg"),
     }
+
 
 @app.post("/generate-pose")
 @app.post("/generate-sign")
 def generate_pose_endpoint(request: GenerateRequest):
-    input_text = request.text or request.gloss
-    if not input_text or not input_text.strip():
-        logger.error("Request failed: text or gloss field is missing or empty.")
-        raise HTTPException(status_code=400, detail="Missing parameter: 'text' or 'gloss' must be provided.")
-        
-    p_format = request.pose_format or request.return_format or "full"
-    if p_format not in ["576", "full"]:
-        logger.error(f"Request failed: invalid pose_format '{p_format}'.")
-        raise HTTPException(status_code=400, detail=f"Invalid pose_format '{p_format}'. Must be '576' or 'full'.")
-        
-    input_text = input_text.strip()
-    logger.info(f"Processing request: text='{input_text}', format='{p_format}', return_video={request.return_video}")
-    
-    try:
-        # Run the retrieval generator (generating only the pose-only NPY file)
-        report = generator.generate(
-            text=input_text,
-            selection_mode="best",
-            out_dir=OUTPUT_DIR,
-            pose_only=True,
-            skip_video=True,
-            blend_frames=8,
-            smoothing_window=5,
-            pose_format=p_format
+    if generator is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Original SignGenerator retrieval system is not available.",
         )
-        
-        # Verify if generator succeeded in creating pose file
-        npy_filename = "generated_sentence.npy"
-        local_npy_path = OUTPUT_DIR / npy_filename
-        
-        if not local_npy_path.exists():
-            logger.error("Generator completed but NPY output file was not found.")
+
+    input_text = (request.gloss or request.text or "").strip()
+    if not input_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing parameter: 'text' or 'gloss' must be provided.",
+        )
+
+    pose_format = _normalize_pose_format(request)
+    normalization = normalize_gloss_to_vocabulary(input_text) if normalize_gloss_to_vocabulary else None
+    retrieval_text = (
+        normalization.get("normalized_gloss")
+        if normalization and normalization.get("normalized_gloss")
+        else input_text
+    )
+    output_id = uuid4().hex
+    pose_path = POSE_OUTPUT_DIR / f"pose_{output_id}.npy"
+    report = None
+
+    with tempfile.TemporaryDirectory(prefix="pharmasign_pose_") as tmp_dir:
+        work_dir = Path(tmp_dir)
+        try:
+            report = generator.generate(
+                text=retrieval_text,
+                selection_mode="best",
+                out_dir=work_dir,
+                pose_only=True,
+                skip_video=True,
+                blend_frames=8,
+                smoothing_window=5,
+                pose_format=pose_format,
+                debug_segments=bool(request.debug_segments),
+            )
+        except Exception as exc:
+            logger.exception("Original SignGenerator retrieval failed.")
             return {
                 "success": False,
-                "error": "Generator failed to write the pose output file.",
+                "error": str(exc),
                 "text": input_text,
                 "gloss": input_text,
-                "missing_tokens": report.get("missing_tokens", [])
+                "normalized_gloss": retrieval_text,
+                "pose_file": None,
+                "video_path": None,
+                "generated_video_url": None,
+                "avatar_video_path": None,
+                "missing_tokens": [],
             }
-            
-        # Copy generated NPY to alternate 'generated_outputs' folder
-        shutil.copy(local_npy_path, GENERATED_OUTPUTS_DIR / npy_filename)
-        logger.info(f"Saved generated pose to {local_npy_path} and {GENERATED_OUTPUTS_DIR / npy_filename}")
-        
-        pose_shape = report.get("final_npy_shape")
-        missing_tokens = report.get("missing_tokens", [])
-        
-        # Video rendering stage
-        video_url = None
-        local_video_path = None
-        video_filename = f"generated_sentence_skeleton_{p_format}.mp4"
-        
-        if request.return_video:
-            local_video_path = OUTPUT_DIR / video_filename
+
+        generated_assets = report.get("generated_assets") or {}
+        generated_pose = Path(generated_assets["pose"]) if generated_assets.get("pose") else None
+        if generated_pose and generated_pose.exists():
+            shutil.copy2(generated_pose, pose_path)
+
+    pose_shape = report.get("final_npy_shape") if report else None
+    if pose_shape is None and pose_path.exists():
+        try:
+            pose_shape = list(np.load(pose_path).shape)
+        except Exception:
+            logger.warning("Could not read generated pose shape from %s", pose_path)
+
+    skeleton_video_path = None
+    skeleton_video_url = None
+    if request.return_video and pose_path.exists():
+        skeleton_video_path = SKELETON_VIDEO_OUTPUT_DIR / f"skeleton_{output_id}.mp4"
+        try:
+            render_pose_video(pose_path, skeleton_video_path, pose_format)
+            skeleton_video_url = _media_url(skeleton_video_path)
+        except Exception as exc:
+            skeleton_video_path = None
+            logger.exception("Skeleton video rendering failed: %s", exc)
+
+    pose_url = _media_url(pose_path) if pose_path.exists() else None
+    avatar_video_path = None
+    avatar_video_url = None
+    avatar_rendering_success = False
+    avatar_error = None
+
+    if request.return_avatar:
+        if render_avatar_from_npy is None:
+            avatar_error = "Avatar renderer is not available."
+        elif not pose_path.exists():
+            avatar_error = "Avatar rendering skipped because no pose file was generated."
+        elif not pose_shape or len(pose_shape) < 2 or int(pose_shape[1]) != 1629:
+            avatar_error = f"Avatar rendering requires pose shape [frames, 1629], got {pose_shape}."
+        else:
+            avatar_video_file = AVATAR_VIDEO_OUTPUT_DIR / f"avatar_{output_id}.mp4"
             try:
-                render_pose_video(
-                    input_path=local_npy_path,
-                    output_path=local_video_path,
-                    pose_format=p_format
-                )
-                
-                # Copy to generated_outputs
-                shutil.copy(local_video_path, GENERATED_OUTPUTS_DIR / video_filename)
-                
-                video_url = f"/media/generated/{video_filename}"
-            except Exception as render_err:
-                logger.error(f"Error rendering skeleton video: {render_err}", exc_info=True)
-                # We still return the NPY since it was generated successfully
-                
-        return {
-            "success": True,
-            "text": input_text,
-            "gloss": input_text,
-            "pose_shape": pose_shape,
-            "pose_file": f"/media/generated/{npy_filename}",
-            "npy_path": f"/media/generated/{npy_filename}",
-            "video_file": video_url,
-            "video_path": video_url,
-            "missing_tokens": missing_tokens
+                render_avatar_from_npy(str(pose_path), str(avatar_video_file), fps=24, bitrate=5000)
+                avatar_video_url = _media_url(avatar_video_file)
+                avatar_video_path = avatar_video_url
+                avatar_rendering_success = bool(avatar_video_url)
+            except Exception as exc:
+                avatar_error = str(exc)
+                logger.exception("Avatar video rendering failed: %s", exc)
+
+    if report is not None:
+        report.setdefault("generated_assets", {})
+        report["generated_assets"]["pose"] = pose_url
+        report["generated_assets"]["video"] = skeleton_video_url
+        report["generated_assets"]["avatar_video"] = avatar_video_url
+        report["avatar_rendering"] = {
+            "requested": bool(request.return_avatar),
+            "success": avatar_rendering_success,
+            "avatar_video_path": avatar_video_path,
+            "avatar_video_url": avatar_video_url,
+            "error": avatar_error,
         }
-        
-    except Exception as e:
-        logger.error(f"Unhandled exception during request processing: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "text": input_text,
-            "gloss": input_text,
-            "missing_tokens": []
-        }
+        report["original_input_text"] = input_text
+        report["normalized_retrieval_gloss"] = retrieval_text
+        report["gloss_normalization"] = normalization
+
+    return {
+        "success": bool(pose_url),
+        "text": input_text,
+        "gloss": input_text,
+        "normalized_gloss": retrieval_text,
+        "pose_shape": pose_shape,
+        "pose_file": pose_url,
+        "file_path": pose_url,
+        "npy_path": pose_url,
+        "video_file": skeleton_video_url,
+        "video_path": skeleton_video_url,
+        "generated_video_path": skeleton_video_url,
+        "generated_video_url": skeleton_video_url,
+        "avatar_rendering_success": avatar_rendering_success,
+        "avatar_video_path": avatar_video_path,
+        "avatar_video_url": avatar_video_url,
+        "avatar_error": avatar_error,
+        "missing_tokens": report.get("missing_tokens", []) if report else [],
+        "matched_units": report.get("matched_units", []) if report else [],
+        "retrieved_tokens": report.get("retrieved_tokens", []) if report else [],
+        "gloss_normalization": normalization,
+        "metadata": {
+            "retrieval_type": "original_sign_generator_pose_retrieval",
+            "project_root": str(SIGN_RETRIEVAL_PROJECT_ROOT),
+            "gloss_normalization": normalization,
+            "report": report,
+        },
+    }
+
 
 if __name__ == "__main__":
     import uvicorn
-    # Start the server on port 8000
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run("ai_service.app:app", host="127.0.0.1", port=8002, reload=True)

@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.db import connection
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -22,6 +23,48 @@ from patients.models import (
 )
 from pharmacies.models import PharmacistProfile, Pharmacy
 from prescriptions.models import Prescription, PrescriptionItem
+
+
+class PatientMedicalInfoEncryptionTests(APITestCase):
+    def test_medical_info_is_encrypted_in_database_and_decrypted_by_orm(self):
+        user = User.objects.create_user(
+            email="encrypted.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=user,
+            full_name="Encrypted Patient",
+        )
+
+        medical_info = PatientMedicalInfo.objects.create(
+            patient=patient,
+            chronic_conditions="Diabetes and hypertension",
+            allergies="Penicillin allergy",
+            notes="Takes vitamin D",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                (
+                    "SELECT chronic_conditions, allergies, notes "
+                    "FROM patients_patientmedicalinfo WHERE id = %s"
+                ),
+                [medical_info.id],
+            )
+            raw_chronic, raw_allergies, raw_notes = cursor.fetchone()
+
+        self.assertNotIn("Diabetes", raw_chronic)
+        self.assertNotIn("Penicillin", raw_allergies)
+        self.assertNotIn("vitamin", raw_notes)
+        self.assertTrue(raw_chronic.startswith("gAAAAA"))
+        self.assertTrue(raw_allergies.startswith("gAAAAA"))
+        self.assertTrue(raw_notes.startswith("gAAAAA"))
+
+        medical_info.refresh_from_db()
+        self.assertEqual(medical_info.chronic_conditions, "Diabetes and hypertension")
+        self.assertEqual(medical_info.allergies, "Penicillin allergy")
+        self.assertEqual(medical_info.notes, "Takes vitamin D")
 
 
 class PatientSessionFlowTests(APITestCase):

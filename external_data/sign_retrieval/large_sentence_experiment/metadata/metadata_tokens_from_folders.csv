@@ -1,0 +1,70 @@
+﻿id,category,gloss_clean,video_path,absolute_video_path,signer_id,take_id,video_exists
+TOK_0001_T01,token,ابلع,Tokens/ابلع.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ابلع.mp4,S01,T01,True
+TOK_0002_T01,token,اثنين,Tokens/اثنين.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اثنين.mp4,S01,T01,True
+TOK_0003_T01,token,اذا,Tokens/اذا.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اذا.mp4,S01,T01,True
+TOK_0004_T01,token,اربعه,Tokens/اربعة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اربعة.mp4,S01,T01,True
+TOK_0005_T01,token,اسبوع,Tokens/اسبوع.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسبوع.mp4,S01,T01,True
+TOK_0006_T01,token,استخدم,Tokens/استخدم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/استخدم.mp4,S01,T01,True
+TOK_0007_T01,token,اسعاف,Tokens/اسعاف.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسعاف.mp4,S01,T01,True
+TOK_0008_T01,token,اسهال,Tokens/اسهال.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اسهال.mp4,S01,T01,True
+TOK_0009_T01,token,اشرب,Tokens/اشرب.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اشرب.mp4,S01,T01,True
+TOK_0010_T01,token,الاذن,Tokens/الاذن.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الاذن.mp4,S01,T01,True
+TOK_0011_T01,token,الانف,Tokens/الانف.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الانف.mp4,S01,T01,True
+TOK_0012_T01,token,الجلد,Tokens/الجلد.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الجلد.mp4,S01,T01,True
+TOK_0013_T01,token,الصباح,Tokens/الصباح.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الصباح.mp4,S01,T01,False
+TOK_0014_T01,token,العين,Tokens/العين.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/العين.mp4,S01,T01,True
+TOK_0015_T01,token,الفم,Tokens/الفم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الفم.mp4,S01,T01,True
+TOK_0016_T01,token,الليل,Tokens/الليل.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/الليل.mp4,S01,T01,True
+TOK_0017_T01,token,انتبه,Tokens/انتبه.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/انتبه.mp4,S01,T01,False
+TOK_0018_T01,token,انتظر,Tokens/انتظر.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/انتظر.mp4,S01,T01,True
+TOK_0019_T01,token,اوقف,Tokens/اوقف.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/اوقف.mp4,S01,T01,False
+TOK_0020_T01,token,بخه,Tokens/بخة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بخة.mp4,S01,T01,True
+TOK_0021_T01,token,براد,Tokens/براد.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/براد.mp4,S01,T01,True
+TOK_0022_T01,token,بعد الاكل,Tokens/بعد الاكل.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بعد الاكل.mp4,S01,T01,True
+TOK_0023_T01,token,بعيد عن الاطفال,Tokens/بعيد عن الاطفال.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/بعيد عن الاطفال.mp4,S01,T01,True
+TOK_0024_T01,token,ثلاث مرات,Tokens/ثلاث مرات.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ثلاث مرات.mp4,S01,T01,True
+TOK_0025_T01,token,ثلاثه,Tokens/ثلاثة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ثلاثة.mp4,S01,T01,True
+TOK_0026_T01,token,حبه,Tokens/حبة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حبة.mp4,S01,T01,True
+TOK_0027_T01,token,حراره الغرفه,Tokens/حرارة الغرفة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حرارة الغرفة.mp4,S01,T01,True
+TOK_0028_T01,token,حساسيه,Tokens/حساسية.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/حساسية.mp4,S01,T01,True
+TOK_0029_T01,token,خذ,Tokens/خذ.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/خذ.mp4,S01,T01,True
+TOK_0030_T01,token,خمسه,Tokens/خمسة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/خمسة.mp4,S01,T01,True
+TOK_0031_T01,token,دوخه,Tokens/دوخة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/دوخة.mp4,S01,T01,True
+TOK_0032_T01,token,رج,Tokens/رج.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/رج.mp4,S01,T01,True
+TOK_0033_T01,token,رخيص,Tokens/رخيص.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/رخيص.mp4,S01,T01,True
+TOK_0034_T01,token,شديد,Tokens/شديد.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/شديد.mp4,S01,T01,True
+TOK_0035_T01,token,شراب,Tokens/شراب.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/شراب.mp4,S01,T01,True
+TOK_0036_T01,token,صافي,Tokens/صافي.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/صافي.mp4,S01,T01,True
+TOK_0037_T01,token,صعوبه تنفس,Tokens/صعوبة تنفس.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/صعوبة تنفس.mp4,S01,T01,True
+TOK_0038_T01,token,ضع,Tokens/ضع.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ضع.mp4,S01,T01,True
+TOK_0039_T01,token,طبيب,Tokens/طبيب.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طبيب.mp4,S01,T01,True
+TOK_0040_T01,token,طبيعي,Tokens/طبيعي.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طبيعي.mp4,S01,T01,True
+TOK_0041_T01,token,طفح جلدي,Tokens/طفح جلدي.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/طفح جلدي.mp4,S01,T01,True
+TOK_0042_T01,token,غالي,Tokens/غالي.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/غالي.mp4,S01,T01,True
+TOK_0043_T01,token,فورا,Tokens/فوراً.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/فوراً.mp4,S01,T01,True
+TOK_0044_T01,token,قبل الاكل,Tokens/قبل الاكل.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/قبل الاكل.mp4,S01,T01,True
+TOK_0045_T01,token,قبل النوم,Tokens/قبل النوم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/قبل النوم.mp4,S01,T01,True
+TOK_0046_T01,token,كبسوله,Tokens/كبسولة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كبسولة.mp4,S01,T01,True
+TOK_0047_T01,token,كريم,Tokens/كريم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كريم.mp4,S01,T01,True
+TOK_0048_T01,token,كل 12 ساعه,Tokens/كل 12 ساعة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كل 12 ساعة.mp4,S01,T01,True
+TOK_0049_T01,token,كل 8 ساعات,Tokens/كل 8 ساعات.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/كل 8 ساعات.mp4,S01,T01,True
+TOK_0050_T01,token,لمده,Tokens/لمدة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/لمدة.mp4,S01,T01,True
+TOK_0051_T01,token,ماء,Tokens/ماء.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ماء.mp4,S01,T01,True
+TOK_0052_T01,token,مرات باليوم,Tokens/مرات باليوم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرات باليوم.mp4,S01,T01,True
+TOK_0053_T01,token,مرتفع,Tokens/مرتفع.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرتفع.mp4,S01,T01,True
+TOK_0054_T01,token,مرتين,Tokens/مرتين.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرتين.mp4,S01,T01,True
+TOK_0055_T01,token,مره واحده,Tokens/مره واحده.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مره واحده.mp4,S01,T01,False
+TOK_0056_T01,token,مرهم,Tokens/مرهم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مرهم.mp4,S01,T01,True
+TOK_0057_T01,token,مستقر,Tokens/مستقر.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مستقر.mp4,S01,T01,True
+TOK_0058_T01,token,مع الاكل,Tokens/مع الاكل.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/مع الاكل.mp4,S01,T01,True
+TOK_0059_T01,token,معلقه كبيره,Tokens/معلقة كبيرة.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/معلقة كبيرة.mp4,S01,T01,True
+TOK_0060_T01,token,ممكان بارد,Tokens/ممكان بارد.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ممكان بارد.mp4,S01,T01,False
+TOK_0061_T01,token,ممنوع لا,Tokens/ممنوع لا.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/ممنوع لا.mp4,S01,T01,False
+TOK_0062_T01,token,منخفض,Tokens/منخفض.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/منخفض.mp4,S01,T01,True
+TOK_0063_T01,token,نصف حبه,Tokens/نصف حبه.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نصف حبه.mp4,S01,T01,False
+TOK_0064_T01,token,نصف ساعه,Tokens/نصف ساعه.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نصف ساعه.mp4,S01,T01,False
+TOK_0065_T01,token,نعاس,Tokens/نعاس.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نعاس.mp4,S01,T01,True
+TOK_0066_T01,token,نقطه,Tokens/نقطة .mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/نقطة .mp4,S01,T01,True
+TOK_0067_T01,token,واحد,Tokens/واحد.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/واحد.mp4,S01,T01,True
+TOK_0068_T01,token,يوم,Tokens/يوم.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/يوم.mp4,S01,T01,True
+TOK_0069_T01,token,يوميا,Tokens/يوميا.mp4,C:/Users/alaan/Desktop/Sign_Tokens/Tokens/يوميا.mp4,S01,T01,False

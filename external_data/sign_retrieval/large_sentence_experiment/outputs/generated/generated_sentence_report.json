@@ -1,0 +1,44 @@
+{
+  "original_text": "الجلد",
+  "normalized_text": "الجلد",
+  "matched_units": [
+    {
+      "phrase": "الجلد",
+      "token": "الجلد",
+      "match_type": "exact",
+      "score": 1.0,
+      "words_count": 1
+    }
+  ],
+  "retrieved_tokens": [
+    {
+      "phrase": "الجلد",
+      "token": "الجلد",
+      "match_type": "exact",
+      "score": 1.0,
+      "take_id": "TOK_0012_T01",
+      "video_path": "",
+      "pose_path": "C:/Users/alaan/Desktop/PharmaSign_BackEnd/external_data/sign_retrieval/large_sentence_experiment/assets/cleaned_pose_full/الجلد/TOK_0012_T01.npy"
+    }
+  ],
+  "missing_units": [],
+  "missing_tokens": [],
+  "selection_mode": "best",
+  "blend_frames": 8,
+  "smoothing_window": 5,
+  "selected_pose_paths": [
+    "C:/Users/alaan/Desktop/PharmaSign_BackEnd/external_data/sign_retrieval/large_sentence_experiment/assets/cleaned_pose_full/الجلد/TOK_0012_T01.npy"
+  ],
+  "original_segment_lengths": [
+    42
+  ],
+  "final_npy_shape": [
+    42,
+    1629
+  ],
+  "generated_assets": {
+    "video": null,
+    "pose": "C:/Users/alaan/Desktop/PharmaSign_BackEnd/external_data/sign_retrieval/large_sentence_experiment/outputs/generated/generated_sentence.npy"
+  },
+  "warnings": []
+}

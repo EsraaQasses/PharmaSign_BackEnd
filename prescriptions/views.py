@@ -930,26 +930,32 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         try:
             pose_result = generate_pose_from_gloss(gloss_text, return_format="npy")
             item.pose_file_path = (
-                pose_result.get("file_path")
-                or pose_result.get("pose_file")
+                pose_result.get("pose_file")
+                or pose_result.get("file_path")
                 or pose_result.get("npy_path")
                 or ""
             )
             item.pose_shape = pose_result.get("pose_shape")
             generated_video = (
                 pose_result.get("generated_video_url")
-                or pose_result.get("video_url")
-                or pose_result.get("video_file")
                 or pose_result.get("video_path")
+                or pose_result.get("video_file")
+                or pose_result.get("video_url")
+                or ""
+            )
+            avatar_video = (
+                pose_result.get("avatar_video_path")
+                or pose_result.get("avatar_video_url")
                 or ""
             )
             item.generated_video_path = (
                 pose_result.get("video_path")
-                or pose_result.get("video_file")
+                or pose_result.get("generated_video_path")
                 or generated_video
                 or ""
             )
             item.generated_video_url = generated_video
+            item.avatar_video_url = avatar_video
             item.ai_metadata = {
                 **(item.ai_metadata or {}),
                 "pose": pose_result.get("metadata", {}),
@@ -970,6 +976,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "pose_shape",
                     "generated_video_path",
                     "generated_video_url",
+                    "avatar_video_url",
                     "ai_metadata",
                     "pose_generated_at",
                     "generation_completed_at",
@@ -984,6 +991,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             item.pose_shape = None
             item.generated_video_path = ""
             item.generated_video_url = ""
+            item.avatar_video_url = ""
             item.sign_error_message = exc.message
             item.sign_status = SignStatusChoices.FAILED
             item.generation_completed_at = timezone.now()
@@ -993,6 +1001,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "pose_shape",
                     "generated_video_path",
                     "generated_video_url",
+                    "avatar_video_url",
                     "sign_error_message",
                     "sign_status",
                     "generation_completed_at",
@@ -1015,6 +1024,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             item.pose_shape = None
             item.generated_video_path = ""
             item.generated_video_url = ""
+            item.avatar_video_url = ""
             item.sign_error_message = str(exc)[:1000]
             item.sign_status = SignStatusChoices.FAILED
             item.generation_completed_at = timezone.now()
@@ -1024,6 +1034,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "pose_shape",
                     "generated_video_path",
                     "generated_video_url",
+                    "avatar_video_url",
                     "sign_error_message",
                     "sign_status",
                     "generation_completed_at",
@@ -1066,6 +1077,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         item.pose_shape = None
         item.generated_video_path = ""
         item.generated_video_url = ""
+        item.avatar_video_url = ""
         item.sign_error_message = ""
         item.generation_completed_at = None
         item.save(
@@ -1074,6 +1086,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 "pose_shape",
                 "generated_video_path",
                 "generated_video_url",
+                "avatar_video_url",
                 "sign_error_message",
                 "generation_completed_at",
                 "updated_at",
