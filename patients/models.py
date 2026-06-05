@@ -11,6 +11,7 @@ from common.choices import (
     PatientSessionAccessTypeChoices,
     RoleChoices,
 )
+from common.fields import EncryptedTextField
 from common.models import TimeStampedModel
 from common.utils import hash_pin
 from organizations.models import Organization
@@ -177,11 +178,11 @@ class PatientMedicalInfo(TimeStampedModel):
         choices=BloodTypeChoices.choices,
         blank=True,
     )
-    chronic_conditions = models.TextField(blank=True)
-    allergies = models.TextField(blank=True)
+    chronic_conditions = EncryptedTextField(blank=True)
+    allergies = EncryptedTextField(blank=True)
     is_pregnant = models.BooleanField(null=True, blank=True)
     is_breastfeeding = models.BooleanField(null=True, blank=True)
-    notes = models.TextField(blank=True)
+    notes = EncryptedTextField(blank=True)
 
     class Meta:
         verbose_name = "Patient medical info"

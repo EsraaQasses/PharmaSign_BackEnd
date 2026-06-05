@@ -1444,6 +1444,17 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "supporting_text",
                 "sign_status",
                 "is_confirmed",
+                "pose_file_path",
+                "pose_file_url",
+                "generated_video_path",
+                "generated_video_url",
+                "avatar_video_url",
+                "sign_error_message",
+                "pose_shape",
+                "ai_metadata",
+                "pose_generated_at",
+                "generation_started_at",
+                "generation_completed_at",
                 "created_at",
                 "updated_at",
             }
@@ -2732,14 +2743,108 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "Edited approved text",
         )
 
+    def test_sign_status_endpoint_returns_generation_state(self):
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.supporting_text = "generated gloss"
+        item.pose_file_path = "generated_outputs/gen_mock.npy"
+        item.generated_video_url = "/media/generated/generated_sentence_skeleton_576.mp4"
+        item.sign_status = SignStatusChoices.COMPLETED
+        item.save(
+            update_fields=[
+                "supporting_text",
+                "pose_file_path",
+                "generated_video_url",
+                "sign_status",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.get(
+            reverse(
+                "pharmacist-prescription-item-sign-status",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["item_id"], item.id)
+        self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
+        self.assertEqual(response.data["gloss_text"], "generated gloss")
+        self.assertEqual(
+            response.data["generated_video_url"],
+            "/media/generated/generated_sentence_skeleton_576.mp4",
+        )
+
+    @patch("prescriptions.views.generate_pose_from_gloss")
+    @patch("prescriptions.views.generate_sign_gloss")
+    def test_regenerate_sign_overwrites_old_failed_output(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
+        mock_generate_sign_gloss.return_value = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash",
+            "gloss_text": "new gloss",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "new gloss",
+            "pose_shape": [64, 576],
+            "file_path": "generated_outputs/new.npy",
+            "video_path": "/media/generated/new.mp4",
+            "metadata": {"model": "retrieval"},
+        }
+        prescription = self._create_prescription()
+        item = prescription.items.first()
+        item.instructions_text = "Manual instructions"
+        item.sign_status = SignStatusChoices.FAILED
+        item.pose_file_path = "old.npy"
+        item.generated_video_url = "/media/generated/old.mp4"
+        item.sign_error_message = "old error"
+        item.save(
+            update_fields=[
+                "instructions_text",
+                "sign_status",
+                "pose_file_path",
+                "generated_video_url",
+                "sign_error_message",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.post(
+            reverse(
+                "pharmacist-prescription-item-regenerate-sign",
+                kwargs={"prescription_id": prescription.id, "item_id": item.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item.refresh_from_db()
+        self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
+        self.assertEqual(item.supporting_text, "new gloss")
+        self.assertEqual(item.pose_file_path, "generated_outputs/new.npy")
+        self.assertEqual(item.generated_video_url, "/media/generated/new.mp4")
+        self.assertEqual(item.sign_error_message, "")
+
+    @patch("prescriptions.views.generate_pose_from_gloss")
     @patch("prescriptions.views.generate_sign_gloss")
     def test_generate_sign_success_when_instructions_text_exists(
-        self, mock_generate_sign_gloss
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
     ):
         mock_generate_sign_gloss.return_value = {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
             "gloss_text": "generated gloss",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "generated gloss",
+            "pose_shape": [128, 576],
+            "file_path": "generated_outputs/gen_mock.npy",
+            "metadata": {"model": "v4_bounded_offset_trimmed"},
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -2769,19 +2874,32 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["gloss_text"], "generated gloss")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertIsNone(response.data["video_url"])
-        self.assertEqual(response.data["detail"], "Gloss generated successfully")
+        self.assertEqual(
+            response.data["detail"],
+            "Gloss, pose, and sign media generated successfully",
+        )
         item.refresh_from_db()
         self.assertEqual(item.supporting_text, "generated gloss")
         self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
         self.assertFalse(item.sign_language_video)
         mock_generate_sign_gloss.assert_called_once_with("Approved text has priority")
 
+    @patch("prescriptions.views.generate_pose_from_gloss")
     @patch("prescriptions.views.generate_sign_gloss")
-    def test_generate_sign_falls_back_to_raw_transcript(self, mock_generate_sign_gloss):
+    def test_generate_sign_falls_back_to_raw_transcript(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
         mock_generate_sign_gloss.return_value = {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
             "gloss_text": "raw gloss",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "raw gloss",
+            "pose_shape": [128, 576],
+            "file_path": "generated_outputs/gen_mock.npy",
+            "metadata": {},
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -2809,12 +2927,22 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_generate_sign_gloss.assert_called_once_with("Raw transcript text")
 
+    @patch("prescriptions.views.generate_pose_from_gloss")
     @patch("prescriptions.views.generate_sign_gloss")
-    def test_generate_sign_falls_back_to_instructions(self, mock_generate_sign_gloss):
+    def test_generate_sign_falls_back_to_instructions(
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
+    ):
         mock_generate_sign_gloss.return_value = {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
             "gloss_text": "instruction gloss",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "instruction gloss",
+            "pose_shape": [128, 576],
+            "file_path": "generated_outputs/gen_mock.npy",
+            "metadata": {},
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -2921,14 +3049,22 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_generate_sign_gloss.assert_not_called()
 
+    @patch("prescriptions.views.generate_pose_from_gloss")
     @patch("prescriptions.views.generate_sign_gloss")
     def test_generate_sign_response_contains_required_output_fields(
-        self, mock_generate_sign_gloss
+        self, mock_generate_sign_gloss, mock_generate_pose_from_gloss
     ):
         mock_generate_sign_gloss.return_value = {
             "provider": "gemini",
             "model": "gemini-2.5-flash",
             "gloss_text": "جرعة 1 صباح",
+        }
+        mock_generate_pose_from_gloss.return_value = {
+            "success": True,
+            "gloss": "جرعة 1 صباح",
+            "pose_shape": [128, 576],
+            "file_path": "generated_outputs/gen_mock.npy",
+            "metadata": {},
         }
         prescription = self._create_prescription()
         item = prescription.items.first()
@@ -2956,11 +3092,12 @@ class PharmacistPrescriptionMVPTests(APITestCase):
                 "output_type",
                 "video_generation_supported",
                 "detail",
+                "pose",
+                "item",
             },
         )
         self.assertEqual(response.data["gloss_text"], "جرعة 1 صباح")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
-        self.assertIsNone(response.data["video_url"])
 
     @override_settings(GEMINI_API_KEY="")
     def test_generate_sign_provider_not_configured_response(self):
@@ -2998,6 +3135,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "gloss": "دواء حبة الصبح قبل الاكل",
             "pose_shape": [128, 576],
             "file_path": "generated_outputs/gen_mock.npy",
+            "video_path": "/media/generated/generated_sentence_skeleton_576.mp4",
             "metadata": {"model": "v4_bounded_offset_trimmed", "device": "cuda"},
         }
         prescription = self._create_prescription()
@@ -3019,7 +3157,11 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["gloss_text"], "دواء حبة الصبح قبل الاكل")
         self.assertEqual(response.data["supporting_text"], "دواء حبة الصبح قبل الاكل")
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
-        self.assertEqual(response.data["output_type"], "gloss_and_pose")
+        self.assertEqual(response.data["output_type"], "gloss_pose_and_video")
+        self.assertIn(
+            "/media/generated/generated_sentence_skeleton_576.mp4",
+            response.data["video_url"],
+        )
         self.assertTrue(response.data["pose"]["success"])
         self.assertEqual(
             response.data["pose"]["file_path"], "generated_outputs/gen_mock.npy"
@@ -3030,9 +3172,18 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.supporting_text, "دواء حبة الصبح قبل الاكل")
         self.assertEqual(item.pose_file_path, "generated_outputs/gen_mock.npy")
+        self.assertEqual(
+            item.generated_video_path,
+            "/media/generated/generated_sentence_skeleton_576.mp4",
+        )
+        self.assertEqual(
+            item.generated_video_url,
+            "/media/generated/generated_sentence_skeleton_576.mp4",
+        )
         self.assertEqual(item.pose_shape, [128, 576])
         self.assertEqual(
-            item.ai_metadata, {"model": "v4_bounded_offset_trimmed", "device": "cuda"}
+            item.ai_metadata["pose"],
+            {"model": "v4_bounded_offset_trimmed", "device": "cuda"},
         )
         self.assertEqual(item.sign_status, SignStatusChoices.COMPLETED)
         self.assertTrue(item.pose_generated_at)
@@ -3110,7 +3261,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(item.supporting_text, "دواء حبة الصبح قبل الاكل")
         self.assertEqual(item.pose_file_path, "")
         self.assertEqual(item.pose_shape, None)
-        self.assertEqual(item.ai_metadata, None)
+        self.assertEqual(
+            item.ai_metadata["gloss"]["model"],
+            "gemini-2.5-flash",
+        )
         self.assertEqual(item.sign_status, SignStatusChoices.FAILED)
 
     def test_archived_prescription_cannot_be_modified_or_processed(self):

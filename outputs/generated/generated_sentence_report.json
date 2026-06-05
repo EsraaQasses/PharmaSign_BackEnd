@@ -1,0 +1,84 @@
+{
+  "original_text": "دواء حبة الصبح قبل الاكل",
+  "normalized_text": "دواء حبه الصبح قبل الاكل",
+  "matched_units": [
+    {
+      "phrase": "دواء",
+      "token": null,
+      "match_type": "missing",
+      "score": 0.0,
+      "words_count": 1
+    },
+    {
+      "phrase": "حبه",
+      "token": "حبه",
+      "match_type": "exact",
+      "score": 1.0,
+      "words_count": 1
+    },
+    {
+      "phrase": "الصبح",
+      "token": null,
+      "match_type": "missing",
+      "score": 0.0,
+      "words_count": 1
+    },
+    {
+      "phrase": "قبل الاكل",
+      "token": "قبل الاكل",
+      "match_type": "exact",
+      "score": 1.0,
+      "words_count": 2
+    }
+  ],
+  "retrieved_tokens": [
+    {
+      "phrase": "حبه",
+      "token": "حبه",
+      "match_type": "exact",
+      "score": 1.0,
+      "take_id": "TOK_0026_T03",
+      "video_path": "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_tokens/حبه/S01_T03.mp4",
+      "pose_path": "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_pose/حبه/TOK_0026_T03.npy"
+    },
+    {
+      "phrase": "قبل الاكل",
+      "token": "قبل الاكل",
+      "match_type": "exact",
+      "score": 1.0,
+      "take_id": "TOK_0044_T04",
+      "video_path": "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_tokens/قبل الاكل/S01_T04.mp4",
+      "pose_path": "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_pose/قبل الاكل/TOK_0044_T04.npy"
+    }
+  ],
+  "missing_units": [
+    "دواء",
+    "الصبح"
+  ],
+  "missing_tokens": [
+    "دواء",
+    "الصبح"
+  ],
+  "selection_mode": "best",
+  "blend_frames": 8,
+  "smoothing_window": 5,
+  "selected_pose_paths": [
+    "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_pose/حبه/TOK_0026_T03.npy",
+    "C:/Users/alaan/Desktop/SignData_Prepared/large_sentence_experiment/assets/cleaned_pose/قبل الاكل/TOK_0044_T04.npy"
+  ],
+  "original_segment_lengths": [
+    45,
+    45
+  ],
+  "final_npy_shape": [
+    82,
+    576
+  ],
+  "generated_assets": {
+    "video": null,
+    "pose": "outputs/generated/generated_sentence.npy"
+  },
+  "warnings": [
+    "Missing tokens: ['دواء', 'الصبح']"
+  ]
+}

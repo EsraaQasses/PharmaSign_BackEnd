@@ -781,26 +781,85 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             }
         )
 
-    def generate_sign(self, request, prescription_id, item_id):
-        self._ensure_approved()
+    def _get_owned_sign_item(self, prescription_id, item_id, *, require_generation_allowed=True):
         try:
             prescription = self._get_prescription(prescription_id)
         except Prescription.DoesNotExist:
-            return self._not_found_response()
-        blocked = self._ensure_sign_generation_response(prescription)
-        if blocked is not None:
-            return blocked
+            return None, None, self._not_found_response()
+        if require_generation_allowed:
+            blocked = self._ensure_sign_generation_response(prescription)
+            if blocked is not None:
+                return None, None, blocked
         try:
             item = prescription.items.get(pk=item_id)
         except PrescriptionItem.DoesNotExist:
-            return self._item_not_found_response()
+            return None, None, self._item_not_found_response()
+        return prescription, item, None
 
-        source_text = (
+    def _select_sign_source_text(self, item):
+        return (
             item.instructions_transcript_edited.strip()
             or item.instructions_transcript_raw.strip()
             or item.instructions_text.strip()
         )
+
+    def _sign_status_payload(self, item):
+        return {
+            "item_id": item.id,
+            "sign_status": item.sign_status,
+            "gloss_text": item.supporting_text or None,
+            "pose_file_path": item.pose_file_path or None,
+            "generated_video_url": item.generated_video_url or None,
+            "avatar_video_url": item.avatar_video_url or None,
+            "sign_error_message": item.sign_error_message or None,
+        }
+
+    def _sign_item_response(self, item, detail, *, status_code=status.HTTP_200_OK):
+        item.refresh_from_db()
+        data = PharmacistPrescriptionItemSerializer(
+            item,
+            context={"request": self.request},
+        ).data
+        return Response(
+            {
+                "detail": detail,
+                "item_id": item.id,
+                "sign_status": item.sign_status,
+                "gloss_text": item.supporting_text or None,
+                "supporting_text": item.supporting_text or None,
+                "pose": {
+                    "success": item.sign_status == SignStatusChoices.COMPLETED,
+                    "gloss": item.supporting_text or None,
+                    "pose_shape": item.pose_shape,
+                    "file_path": item.pose_file_path or None,
+                    "metadata": item.ai_metadata,
+                },
+                "video_url": data.get("video_url"),
+                "output_type": "gloss_pose_and_video",
+                "video_generation_supported": True,
+                "item": data,
+            },
+            status=status_code,
+        )
+
+    def _set_sign_failed(self, item, message):
+        item.sign_status = SignStatusChoices.FAILED
+        item.sign_error_message = str(message)[:1000]
+        item.generation_completed_at = timezone.now()
+        item.save(
+            update_fields=[
+                "sign_status",
+                "sign_error_message",
+                "generation_completed_at",
+                "updated_at",
+            ]
+        )
+
+    def _run_sign_generation(self, item):
+        source_text = self._select_sign_source_text(item)
         if not source_text:
+            item.sign_error_message = "No instruction text is available for gloss generation."
+            item.save(update_fields=["sign_error_message", "updated_at"])
             return Response(
                 {
                     "detail": "No instruction text is available for gloss generation.",
@@ -812,7 +871,7 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
             )
 
         if not settings.GEMINI_API_KEY:
-            mark_prescription_item_sign_failed(item)
+            self._set_sign_failed(item, "Gloss generation provider is not configured")
             item.refresh_from_db()
             return Response(
                 {
@@ -824,14 +883,27 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        mark_prescription_item_sign_processing(item)
+        now = timezone.now()
+        item.sign_status = SignStatusChoices.PROCESSING
+        item.sign_error_message = ""
+        item.generation_started_at = now
+        item.generation_completed_at = None
+        item.save(
+            update_fields=[
+                "sign_status",
+                "sign_error_message",
+                "generation_started_at",
+                "generation_completed_at",
+                "updated_at",
+            ]
+        )
         item.refresh_from_db()
         try:
             result = generate_sign_gloss(source_text)
-        except SignGenerationError:
+        except SignGenerationError as exc:
             if settings.DEBUG:
                 logger.exception("Sign/gloss generation provider failed.")
-            mark_prescription_item_sign_failed(item)
+            self._set_sign_failed(item, exc.safe_message)
             item.refresh_from_db()
             return Response(
                 {
@@ -839,44 +911,91 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "code": "gloss_generation_failed",
                     "item_id": item.id,
                     "sign_status": item.sign_status,
+                    "sign_error_message": item.sign_error_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
         gloss_text = result["gloss_text"]
         item.supporting_text = gloss_text
-        item.save(update_fields=["supporting_text", "updated_at"])
+        item.ai_metadata = {
+            **(item.ai_metadata or {}),
+            "gloss": {
+                "provider": result.get("provider"),
+                "model": result.get("model"),
+            },
+        }
+        item.save(update_fields=["supporting_text", "ai_metadata", "updated_at"])
 
-        # Chained step: Gloss-to-Pose generation
         try:
             pose_result = generate_pose_from_gloss(gloss_text, return_format="npy")
-            item.pose_file_path = pose_result.get("file_path", "")
+            item.pose_file_path = (
+                pose_result.get("file_path")
+                or pose_result.get("pose_file")
+                or pose_result.get("npy_path")
+                or ""
+            )
             item.pose_shape = pose_result.get("pose_shape")
-            item.ai_metadata = pose_result.get("metadata", {})
-            item.pose_generated_at = timezone.now()
+            generated_video = (
+                pose_result.get("generated_video_url")
+                or pose_result.get("video_url")
+                or pose_result.get("video_file")
+                or pose_result.get("video_path")
+                or ""
+            )
+            item.generated_video_path = (
+                pose_result.get("video_path")
+                or pose_result.get("video_file")
+                or generated_video
+                or ""
+            )
+            item.generated_video_url = generated_video
+            item.ai_metadata = {
+                **(item.ai_metadata or {}),
+                "pose": pose_result.get("metadata", {}),
+                "pose_response": {
+                    key: value
+                    for key, value in pose_result.items()
+                    if key not in {"pose"}
+                },
+            }
+            completed_at = timezone.now()
+            item.pose_generated_at = completed_at
+            item.generation_completed_at = completed_at
+            item.sign_error_message = ""
             item.sign_status = SignStatusChoices.COMPLETED
             item.save(
                 update_fields=[
                     "pose_file_path",
                     "pose_shape",
+                    "generated_video_path",
+                    "generated_video_url",
                     "ai_metadata",
                     "pose_generated_at",
+                    "generation_completed_at",
+                    "sign_error_message",
                     "sign_status",
                     "updated_at",
                 ]
             )
-        except AIPoseGenerationError as e:
-            logger.error(f"Pose generation failed for item {item.id}: {e.message}")
+        except AIPoseGenerationError as exc:
+            logger.error(f"Pose generation failed for item {item.id}: {exc.message}")
             item.pose_file_path = ""
             item.pose_shape = None
-            item.ai_metadata = None
+            item.generated_video_path = ""
+            item.generated_video_url = ""
+            item.sign_error_message = exc.message
             item.sign_status = SignStatusChoices.FAILED
+            item.generation_completed_at = timezone.now()
             item.save(
                 update_fields=[
                     "pose_file_path",
                     "pose_shape",
-                    "ai_metadata",
+                    "generated_video_path",
+                    "generated_video_url",
+                    "sign_error_message",
                     "sign_status",
+                    "generation_completed_at",
                     "updated_at",
                 ]
             )
@@ -886,21 +1005,28 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "code": "pose_generation_failed",
                     "item_id": item.id,
                     "sign_status": item.sign_status,
+                    "sign_error_message": item.sign_error_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        except Exception as e:
+        except Exception as exc:
             logger.exception(f"Unexpected error in pose generation for item {item.id}.")
             item.pose_file_path = ""
             item.pose_shape = None
-            item.ai_metadata = None
+            item.generated_video_path = ""
+            item.generated_video_url = ""
+            item.sign_error_message = str(exc)[:1000]
             item.sign_status = SignStatusChoices.FAILED
+            item.generation_completed_at = timezone.now()
             item.save(
                 update_fields=[
                     "pose_file_path",
                     "pose_shape",
-                    "ai_metadata",
+                    "generated_video_path",
+                    "generated_video_url",
+                    "sign_error_message",
                     "sign_status",
+                    "generation_completed_at",
                     "updated_at",
                 ]
             )
@@ -910,30 +1036,60 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
                     "code": "pose_generation_failed",
                     "item_id": item.id,
                     "sign_status": item.sign_status,
+                    "sign_error_message": item.sign_error_message,
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        item.refresh_from_db()
-        return Response(
-            {
-                "item_id": item.id,
-                "sign_status": SignStatusChoices.COMPLETED,
-                "gloss_text": item.supporting_text,
-                "supporting_text": item.supporting_text,
-                "pose": {
-                    "success": True,
-                    "gloss": item.supporting_text,
-                    "pose_shape": item.pose_shape,
-                    "file_path": item.pose_file_path,
-                    "metadata": item.ai_metadata,
-                },
-                "video_url": None,
-                "output_type": "gloss_and_pose",
-                "video_generation_supported": False,
-                "detail": "Gloss and pose generated successfully",
-            }
+        return self._sign_item_response(item, "Gloss, pose, and sign media generated successfully")
+
+    def generate_sign(self, request, prescription_id, item_id):
+        self._ensure_approved()
+        _prescription, item, error_response = self._get_owned_sign_item(
+            prescription_id,
+            item_id,
         )
+        if error_response is not None:
+            return error_response
+        return self._run_sign_generation(item)
+
+    def regenerate_sign(self, request, prescription_id, item_id):
+        self._ensure_approved()
+        _prescription, item, error_response = self._get_owned_sign_item(
+            prescription_id,
+            item_id,
+            require_generation_allowed=False,
+        )
+        if error_response is not None:
+            return error_response
+        item.pose_file_path = ""
+        item.pose_shape = None
+        item.generated_video_path = ""
+        item.generated_video_url = ""
+        item.sign_error_message = ""
+        item.generation_completed_at = None
+        item.save(
+            update_fields=[
+                "pose_file_path",
+                "pose_shape",
+                "generated_video_path",
+                "generated_video_url",
+                "sign_error_message",
+                "generation_completed_at",
+                "updated_at",
+            ]
+        )
+        return self._run_sign_generation(item)
+
+    def sign_status(self, request, prescription_id, item_id):
+        self._ensure_approved()
+        _prescription, item, error_response = self._get_owned_sign_item(
+            prescription_id,
+            item_id,
+        )
+        if error_response is not None:
+            return error_response
+        return Response(self._sign_status_payload(item))
 
     def submit(self, request, prescription_id):
         self._ensure_approved()

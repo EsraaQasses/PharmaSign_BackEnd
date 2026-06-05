@@ -83,6 +83,30 @@ def build_file_url(serializer, file_field):
     return url
 
 
+def build_media_value_url(serializer, value):
+    if not value:
+        return None
+    value = str(value)
+    if value.startswith(("http://", "https://")):
+        return value
+    request = serializer.context.get("request")
+    if value.startswith("/") and request:
+        return request.build_absolute_uri(value)
+    return value
+
+
+def build_pose_file_url(serializer, obj):
+    return build_media_value_url(serializer, obj.pose_file_path)
+
+
+def build_best_sign_video_url(serializer, obj):
+    return (
+        build_media_value_url(serializer, obj.avatar_video_url)
+        or build_media_value_url(serializer, obj.generated_video_url)
+        or build_file_url(serializer, obj.sign_language_video)
+    )
+
+
 def stable_error(detail, code):
     return serializers.ValidationError({"detail": detail, "code": code})
 
@@ -118,6 +142,7 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
     audio_url = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
+    pose_file_url = serializers.SerializerMethodField()
     raw_transcript = serializers.SerializerMethodField()
     approved_instruction_text = serializers.SerializerMethodField()
     gloss_text = serializers.CharField(source="supporting_text", read_only=True)
@@ -147,9 +172,16 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
             "pose_file_path",
+            "pose_file_url",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
             "created_at",
             "updated_at",
         )
@@ -162,7 +194,10 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
         return build_file_url(self, obj.instructions_audio)
 
     def get_video_url(self, obj):
-        return None
+        return build_best_sign_video_url(self, obj)
+
+    def get_pose_file_url(self, obj):
+        return build_pose_file_url(self, obj)
 
     def get_raw_transcript(self, obj):
         return obj.instructions_transcript_raw or None
@@ -205,9 +240,15 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
             "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
             "created_at",
             "updated_at",
         )
@@ -222,6 +263,9 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
 
 class SafePrescriptionItemSerializer(serializers.ModelSerializer):
     video_url = serializers.SerializerMethodField()
+    pose_file_url = serializers.SerializerMethodField()
+    approved_instruction_text = serializers.SerializerMethodField()
+    gloss_text = serializers.CharField(source="supporting_text", read_only=True)
 
     class Meta:
         model = PrescriptionItem
@@ -232,21 +276,34 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
             "frequency",
             "duration",
             "instructions_text",
+            "approved_instruction_text",
+            "gloss_text",
             "supporting_text",
             "sign_status",
             "sign_language_video",
             "video_url",
             "pose_file_path",
+            "pose_file_url",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
         )
         read_only_fields = fields
 
     def get_video_url(self, obj):
-        if not obj.sign_language_video:
-            return None
-        return obj.sign_language_video.url
+        return build_best_sign_video_url(self, obj)
+
+    def get_pose_file_url(self, obj):
+        return build_pose_file_url(self, obj)
+
+    def get_approved_instruction_text(self, obj):
+        return obj.instructions_transcript_edited or None
 
 
 class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
@@ -295,11 +352,29 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
             "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
         )
-        read_only_fields = ("line_total",)
+        read_only_fields = (
+            "line_total",
+            "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
+        )
 
     def validate(self, attrs):
         require_create_pricing(self, attrs)
@@ -356,11 +431,29 @@ class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
             "sign_status",
             "is_confirmed",
             "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
         )
-        read_only_fields = ("line_total",)
+        read_only_fields = (
+            "line_total",
+            "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
+            "pose_shape",
+            "ai_metadata",
+            "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
+        )
 
     def validate(self, attrs):
         if "unit_price" not in attrs and "price" in attrs:
@@ -509,14 +602,20 @@ class AdminPrescriptionLogItemSerializer(serializers.ModelSerializer):
             "edited_transcript",
             "sign_video_url",
             "pose_file_path",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
         )
         read_only_fields = fields
 
     def get_sign_video_url(self, obj):
-        return build_file_url(self, obj.sign_language_video)
+        return build_best_sign_video_url(self, obj)
 
 
 class AdminPrescriptionAccessLogSerializer(serializers.ModelSerializer):
@@ -758,6 +857,9 @@ class ApproveTranscriptSerializer(serializers.Serializer):
 
 class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
     video_url = serializers.SerializerMethodField()
+    pose_file_url = serializers.SerializerMethodField()
+    approved_instruction_text = serializers.SerializerMethodField()
+    gloss_text = serializers.CharField(source="supporting_text", read_only=True)
 
     class Meta:
         model = PrescriptionItem
@@ -772,21 +874,34 @@ class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
             "transcription_provider",
             "instructions_transcript_raw",
             "instructions_transcript_edited",
+            "approved_instruction_text",
+            "gloss_text",
             "supporting_text",
             "sign_status",
             "sign_language_video",
             "video_url",
             "pose_file_path",
+            "pose_file_url",
+            "generated_video_path",
+            "generated_video_url",
+            "avatar_video_url",
+            "sign_error_message",
             "pose_shape",
             "ai_metadata",
             "pose_generated_at",
+            "generation_started_at",
+            "generation_completed_at",
         )
         read_only_fields = fields
 
     def get_video_url(self, obj):
-        if not obj.sign_language_video:
-            return None
-        return obj.sign_language_video.url
+        return build_best_sign_video_url(self, obj)
+
+    def get_pose_file_url(self, obj):
+        return build_pose_file_url(self, obj)
+
+    def get_approved_instruction_text(self, obj):
+        return obj.instructions_transcript_edited or None
 
 
 class PharmacistPrescriptionSerializer(serializers.ModelSerializer):
@@ -1056,7 +1171,17 @@ class AdminSignQualityReportSerializer(serializers.ModelSerializer):
             "instructions_transcript_edited": item.instructions_transcript_edited,
             "supporting_text": item.supporting_text,
             "sign_status": item.sign_status,
-            "video_url": build_file_url(self, item.sign_language_video),
+            "video_url": build_best_sign_video_url(self, item),
+            "pose_file_path": item.pose_file_path,
+            "pose_file_url": build_pose_file_url(self, item),
+            "generated_video_path": item.generated_video_path,
+            "generated_video_url": item.generated_video_url,
+            "avatar_video_url": item.avatar_video_url,
+            "sign_error_message": item.sign_error_message,
+            "pose_shape": item.pose_shape,
+            "ai_metadata": item.ai_metadata,
+            "generation_started_at": item.generation_started_at,
+            "generation_completed_at": item.generation_completed_at,
         }
 
 

@@ -47,6 +47,12 @@ pharmacist_prescription_item_approve_transcript = PharmacistPrescriptionViewSet.
 pharmacist_prescription_item_generate_sign = PharmacistPrescriptionViewSet.as_view(
     {"post": "generate_sign"}
 )
+pharmacist_prescription_item_regenerate_sign = PharmacistPrescriptionViewSet.as_view(
+    {"post": "regenerate_sign"}
+)
+pharmacist_prescription_item_sign_status = PharmacistPrescriptionViewSet.as_view(
+    {"get": "sign_status"}
+)
 pharmacist_prescription_submit = PharmacistPrescriptionViewSet.as_view(
     {"post": "submit"}
 )
@@ -153,6 +159,22 @@ urlpatterns = [
         ),
         pharmacist_prescription_item_generate_sign,
         name="pharmacist-prescription-item-generate-sign",
+    ),
+    path(
+        (
+            "pharmacist/prescriptions/<int:prescription_id>/items/"
+            "<int:item_id>/regenerate-sign/"
+        ),
+        pharmacist_prescription_item_regenerate_sign,
+        name="pharmacist-prescription-item-regenerate-sign",
+    ),
+    path(
+        (
+            "pharmacist/prescriptions/<int:prescription_id>/items/"
+            "<int:item_id>/sign-status/"
+        ),
+        pharmacist_prescription_item_sign_status,
+        name="pharmacist-prescription-item-sign-status",
     ),
     path(
         "pharmacist/prescriptions/<int:prescription_id>/submit/",

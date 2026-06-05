@@ -302,3 +302,20 @@ AI_SERVICE_URL = config("AI_SERVICE_URL", default="http://127.0.0.1:8002")
 AI_SERVICE_API_KEY = config("AI_SERVICE_API_KEY", default="")
 AI_SERVICE_TIMEOUT = config("AI_SERVICE_TIMEOUT", default=60, cast=int)
 
+# Field-Level Encryption configuration
+import logging
+from django.core.exceptions import ImproperlyConfigured
+
+logger = logging.getLogger(__name__)
+FIELD_ENCRYPTION_KEY = config("FIELD_ENCRYPTION_KEY", default="")
+
+if not FIELD_ENCRYPTION_KEY:
+    if DEBUG:
+        logger.warning(
+            "WARNING: FIELD_ENCRYPTION_KEY is not set. A temporary fallback key will be used for local development. "
+            "Do NOT use this fallback in production!"
+        )
+    else:
+        raise ImproperlyConfigured("FIELD_ENCRYPTION_KEY must be configured in production (DEBUG=False).")
+
+

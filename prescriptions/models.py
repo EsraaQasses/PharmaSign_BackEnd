@@ -12,6 +12,7 @@ from common.choices import (
     SignStatusChoices,
     TranscriptionStatusChoices,
 )
+from common.fields import EncryptedTextField, EncryptedCharField
 from common.models import TimeStampedModel
 from common.uploads import (
     build_prescription_media_upload_path,
@@ -62,7 +63,7 @@ class Prescription(TimeStampedModel):
     )
     doctor_name = models.CharField(max_length=255)
     doctor_specialty = models.CharField(max_length=255, blank=True)
-    diagnosis = models.CharField(max_length=255, blank=True)
+    diagnosis = EncryptedCharField(max_length=255, blank=True)
     status = models.CharField(
         max_length=20,
         choices=PrescriptionStatusChoices.choices,
@@ -71,7 +72,7 @@ class Prescription(TimeStampedModel):
     prescribed_at = models.DateTimeField(default=timezone.now)
     submitted_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
-    notes = models.TextField(blank=True)
+    notes = EncryptedTextField(blank=True)
     total_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     currency = models.CharField(max_length=3, default="SYP")
     reused_from = models.ForeignKey(
@@ -128,7 +129,7 @@ class PrescriptionItem(TimeStampedModel):
     dosage = models.CharField(max_length=100, blank=True)
     frequency = models.CharField(max_length=100, blank=True)
     duration = models.CharField(max_length=100, blank=True)
-    instructions_text = models.TextField(blank=True)
+    instructions_text = EncryptedTextField(blank=True)
     medicine_image = models.ImageField(
         upload_to=medicine_image_upload_to, null=True, blank=True
     )
@@ -150,14 +151,14 @@ class PrescriptionItem(TimeStampedModel):
     transcription_requested_at = models.DateTimeField(null=True, blank=True)
     transcription_completed_at = models.DateTimeField(null=True, blank=True)
     transcription_error_message = models.TextField(blank=True)
-    instructions_transcript_raw = models.TextField(blank=True)
-    instructions_transcript_edited = models.TextField(blank=True)
+    instructions_transcript_raw = EncryptedTextField(blank=True)
+    instructions_transcript_edited = EncryptedTextField(blank=True)
     sign_language_video = models.FileField(
         upload_to=sign_language_video_upload_to,
         null=True,
         blank=True,
     )
-    supporting_text = models.TextField(blank=True)
+    supporting_text = EncryptedTextField(blank=True)
     sign_status = models.CharField(
         max_length=20,
         choices=SignStatusChoices.choices,
@@ -168,6 +169,12 @@ class PrescriptionItem(TimeStampedModel):
     pose_shape = models.JSONField(null=True, blank=True)
     ai_metadata = models.JSONField(null=True, blank=True)
     pose_generated_at = models.DateTimeField(null=True, blank=True)
+    generated_video_path = models.CharField(max_length=500, blank=True, default="")
+    generated_video_url = models.CharField(max_length=1000, blank=True, default="")
+    avatar_video_url = models.CharField(max_length=1000, blank=True, default="")
+    sign_error_message = models.TextField(blank=True, default="")
+    generation_started_at = models.DateTimeField(null=True, blank=True)
+    generation_completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("created_at",)
@@ -268,7 +275,7 @@ class SignQualityReport(TimeStampedModel):
         related_name="sign_quality_reports",
     )
     medicine_name = models.CharField(max_length=255)
-    approved_instruction_text = models.TextField(blank=True)
+    approved_instruction_text = EncryptedTextField(blank=True)
     report_type = models.CharField(
         max_length=50,
         choices=REPORT_TYPE_CHOICES,
