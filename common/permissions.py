@@ -68,6 +68,44 @@ def pharmacist_can_access_patient(user, patient_profile):
     )
 
 
+def admin_can_access_patient(user, patient_profile):
+    if not has_patient_management_access(user):
+        return False
+    profile = get_staff_profile(user)
+    return bool(
+        user.is_superuser
+        or profile is None
+        or patient_profile.organization_id == profile.organization_id
+    )
+
+
+def user_can_view_patient_medical_data(user, patient_profile):
+    if not user or not user.is_authenticated or patient_profile is None:
+        return False
+    if admin_can_access_patient(user, patient_profile):
+        return True
+    if is_patient_role(user):
+        return getattr(patient_profile, "user_id", None) == user.id
+    return pharmacist_can_access_patient(user, patient_profile)
+
+
+def user_can_view_prescription_medical_data(user, prescription):
+    patient_profile = getattr(prescription, "patient", None)
+    if not user_can_view_patient_medical_data(user, patient_profile):
+        return False
+    if is_pharmacist_role(user):
+        pharmacist_profile = get_pharmacist_profile(user)
+        return bool(
+            pharmacist_profile
+            and pharmacist_profile.is_approved
+            and (
+                getattr(prescription, "pharmacist_id", None) == pharmacist_profile.id
+                or pharmacist_can_access_patient(user, patient_profile)
+            )
+        )
+    return True
+
+
 class IsAdminRole(BasePermission):
     def has_permission(self, request, view):
         return is_admin_role(request.user)

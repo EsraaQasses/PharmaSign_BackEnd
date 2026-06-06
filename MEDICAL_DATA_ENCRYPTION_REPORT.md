@@ -7,6 +7,11 @@ the database. API field names and serializer behavior remain unchanged: the
 frontend sends and receives normal plaintext through authorized endpoints, while
 the database stores ciphertext.
 
+Plaintext is returned only after the request passes JWT authentication,
+role/permission checks, queryset scoping, and serializer-level object checks.
+The frontend never receives `FIELD_ENCRYPTION_KEY` and does not perform any
+decryption.
+
 ## Encrypted Fields
 
 Patient medical data:
@@ -43,6 +48,26 @@ These fields encrypt automatically in `get_prep_value()` before database writes
 and decrypt automatically in `from_db_value()` / `to_python()` when read through
 the Django ORM.
 
+## Backend Decryption Flow
+
+Sensitive serializers use `common.sensitive_serializers.SensitiveMedicalDataSerializerMixin`
+before representing encrypted fields. The mixin requires an authenticated
+request context and verifies object-level access through:
+
+- `user_can_view_patient_medical_data`
+- `user_can_view_prescription_medical_data`
+
+Only after these checks pass does the serializer touch model attributes that are
+decrypted by `EncryptedTextField` / `EncryptedCharField`. If the user is not
+authorized, the API returns a permission error instead of decrypting or
+serializing medical text.
+
+Authorized mobile/admin GET responses intentionally contain normal plaintext
+values for display, including patient allergies/chronic conditions/medical
+notes and prescription diagnoses/instructions/transcripts. This is a backend
+responsibility only; clients must treat the values as sensitive display data and
+must not log them or persist them unnecessarily.
+
 ## Encryption Key
 
 The key is read from:
@@ -76,6 +101,8 @@ needs to verify them, not display them.
 ## Files Modified
 
 - `common/fields.py`
+- `common/permissions.py`
+- `common/sensitive_serializers.py`
 - `pharmasign/settings.py`
 - `.env.example`
 - `requirements.txt`

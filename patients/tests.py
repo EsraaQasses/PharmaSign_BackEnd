@@ -21,6 +21,7 @@ from patients.models import (
     PatientSession,
     PatientSessionQR,
 )
+from patients.services import generate_patient_session_qr
 from pharmacies.models import PharmacistProfile, Pharmacy
 from prescriptions.models import Prescription, PrescriptionItem
 
@@ -65,6 +66,101 @@ class PatientMedicalInfoEncryptionTests(APITestCase):
         self.assertEqual(medical_info.chronic_conditions, "Diabetes and hypertension")
         self.assertEqual(medical_info.allergies, "Penicillin allergy")
         self.assertEqual(medical_info.notes, "Takes vitamin D")
+
+    def test_authorized_patient_admin_and_pharmacist_get_plain_medical_data(self):
+        organization = Organization.objects.create(name="Encrypted Access Org")
+        patient_user = User.objects.create_user(
+            email="encrypted.access.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            organization=organization,
+            full_name="Encrypted Access Patient",
+            qr_code_value="encrypted-access-qr",
+            qr_is_active=True,
+        )
+        medical_info = PatientMedicalInfo.objects.create(
+            patient=patient,
+            chronic_conditions="Asthma",
+            allergies="Aspirin",
+            notes="Uses inhaler",
+        )
+        admin_user = User.objects.create_user(
+            email="encrypted.access.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+        )
+        pharmacist_user = User.objects.create_user(
+            email="encrypted.access.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="Encrypted Access Pharmacy",
+            address="Damascus",
+            organization=organization,
+            is_contracted_with_organization=True,
+        )
+        PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="Encrypted Access Pharmacist",
+            is_approved=True,
+        )
+
+        self.client.force_authenticate(patient_user)
+        patient_response = self.client.get(reverse("patient-me"))
+        self.assertEqual(patient_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patient_response.data["allergies"], "Aspirin")
+        self.assertEqual(patient_response.data["chronic_conditions"], "Asthma")
+        self.assertEqual(patient_response.data["regular_medications"], "Uses inhaler")
+
+        self.client.force_authenticate(admin_user)
+        admin_response = self.client.get(
+            reverse("admin-patient-detail", kwargs={"pk": patient.id})
+        )
+        self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(admin_response.data["medical_info"]["allergies"], "Aspirin")
+
+        self.client.force_authenticate(pharmacist_user)
+        pharmacist_response = self.client.post(
+            reverse("pharmacist-session-start-by-qr"),
+            {"qr_token": generate_patient_session_qr(patient)[0]},
+            format="json",
+        )
+        self.assertEqual(pharmacist_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            pharmacist_response.data["medical_info"]["allergies"],
+            "Aspirin",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT allergies FROM patients_patientmedicalinfo WHERE id = %s",
+                [medical_info.id],
+            )
+            raw_allergies = cursor.fetchone()[0]
+        self.assertNotIn("Aspirin", raw_allergies)
+        self.assertTrue(raw_allergies.startswith("gAAAAA"))
+
+    def test_unauthorized_user_cannot_get_patient_medical_data(self):
+        patient_user = User.objects.create_user(
+            email="encrypted.denied.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(user=patient_user, full_name="Denied Patient")
+        other_patient_user = User.objects.create_user(
+            email="encrypted.denied.other@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+
+        self.client.force_authenticate(other_patient_user)
+        response = self.client.get(reverse("admin-patient-list"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class PatientSessionFlowTests(APITestCase):

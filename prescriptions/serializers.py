@@ -5,6 +5,7 @@ from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from common.choices import PrescriptionStatusChoices, SignStatusChoices
+from common.sensitive_serializers import SensitiveMedicalDataSerializerMixin
 from common.uploads import (
     validate_audio_upload,
     validate_image_upload,
@@ -136,7 +137,12 @@ def validate_item_image_upload(uploaded_file):
     return uploaded_file
 
 
-class PrescriptionItemContractSerializer(serializers.ModelSerializer):
+class PrescriptionItemContractSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     medication_name = serializers.CharField(source="medicine_name", read_only=True)
     instructions = serializers.CharField(source="instructions_text", read_only=True)
     image_url = serializers.SerializerMethodField()
@@ -211,7 +217,12 @@ class PrescriptionItemContractSerializer(serializers.ModelSerializer):
         return obj.transcription_status
 
 
-class PrescriptionItemSerializer(serializers.ModelSerializer):
+class PrescriptionItemSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     class Meta:
         model = PrescriptionItem
         fields = (
@@ -261,7 +272,12 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
         )
 
 
-class SafePrescriptionItemSerializer(serializers.ModelSerializer):
+class SafePrescriptionItemSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     video_url = serializers.SerializerMethodField()
     pose_file_url = serializers.SerializerMethodField()
     approved_instruction_text = serializers.SerializerMethodField()
@@ -306,7 +322,12 @@ class SafePrescriptionItemSerializer(serializers.ModelSerializer):
         return obj.instructions_transcript_edited or None
 
 
-class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
+class PrescriptionItemCreateSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     def validate_price(self, value):
         return validate_unit_price_value(value)
 
@@ -385,7 +406,12 @@ class PrescriptionItemCreateSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
+class PrescriptionItemUpdateSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     def validate_price(self, value):
         return validate_unit_price_value(value)
 
@@ -463,7 +489,12 @@ class PrescriptionItemUpdateSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class PrescriptionSerializer(serializers.ModelSerializer):
+class PrescriptionSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     patient = serializers.SerializerMethodField()
     pharmacist = serializers.SerializerMethodField()
     pharmacy = serializers.SerializerMethodField()
@@ -572,7 +603,12 @@ class AdminPrescriptionLogListSerializer(serializers.ModelSerializer):
         return report.status if report else None
 
 
-class AdminPrescriptionLogItemSerializer(serializers.ModelSerializer):
+class AdminPrescriptionLogItemSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     instructions = serializers.CharField(source="instructions_text", read_only=True)
     raw_transcript = serializers.CharField(
         source="instructions_transcript_raw",
@@ -642,7 +678,12 @@ class AdminPrescriptionAccessLogSerializer(serializers.ModelSerializer):
         }
 
 
-class AdminPrescriptionLogDetailSerializer(serializers.ModelSerializer):
+class AdminPrescriptionLogDetailSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     patient = serializers.SerializerMethodField()
     pharmacy = serializers.SerializerMethodField()
     pharmacist = serializers.SerializerMethodField()
@@ -855,7 +896,12 @@ class ApproveTranscriptSerializer(serializers.Serializer):
         return value.strip()
 
 
-class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
+class TranscribedPrescriptionItemSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_prescription_attr = "prescription"
+
     video_url = serializers.SerializerMethodField()
     pose_file_url = serializers.SerializerMethodField()
     approved_instruction_text = serializers.SerializerMethodField()
@@ -904,7 +950,12 @@ class TranscribedPrescriptionItemSerializer(serializers.ModelSerializer):
         return obj.instructions_transcript_edited or None
 
 
-class PharmacistPrescriptionSerializer(serializers.ModelSerializer):
+class PharmacistPrescriptionSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     patient = serializers.SerializerMethodField()
     pharmacist = serializers.SerializerMethodField()
     pharmacy = serializers.SerializerMethodField()
@@ -1048,7 +1099,12 @@ class PharmacistPrescriptionSubmitSerializer(serializers.Serializer):
         return attrs
 
 
-class SignQualityReportSerializer(serializers.ModelSerializer):
+class SignQualityReportSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     class Meta:
         model = SignQualityReport
         fields = (
@@ -1085,7 +1141,12 @@ class PatientSignQualityReportCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class AdminSignQualityReportSerializer(serializers.ModelSerializer):
+class AdminSignQualityReportSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     patient = serializers.SerializerMethodField()
     doctor_name = serializers.CharField(
         source="prescription.doctor_name", read_only=True

@@ -9,6 +9,8 @@ from accounts.serializers import (
     build_compat_user_payload,
 )
 from common.choices import ApprovalStatusChoices, BloodTypeChoices, RoleChoices
+from common.permissions import user_can_view_patient_medical_data
+from common.sensitive_serializers import SensitiveMedicalDataSerializerMixin
 from .models import (
     PatientEnrollment,
     PatientLoginQR,
@@ -30,7 +32,12 @@ from .services import (
 User = get_user_model()
 
 
-class PatientMedicalInfoSerializer(serializers.ModelSerializer):
+class PatientMedicalInfoSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     class Meta:
         model = PatientMedicalInfo
         fields = (
@@ -92,7 +99,12 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         return getattr(enrollment, "id", None)
 
 
-class AdminPatientMedicalInfoSerializer(serializers.ModelSerializer):
+class AdminPatientMedicalInfoSerializer(
+    SensitiveMedicalDataSerializerMixin,
+    serializers.ModelSerializer,
+):
+    sensitive_patient_attr = "patient"
+
     class Meta:
         model = PatientMedicalInfo
         fields = (
@@ -159,7 +171,10 @@ class AdminPatientSerializer(serializers.ModelSerializer):
 
     def get_medical_info(self, obj):
         medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=obj)
-        return AdminPatientMedicalInfoSerializer(medical_info).data
+        return AdminPatientMedicalInfoSerializer(
+            medical_info,
+            context=self.context,
+        ).data
 
     def get_account_status(self, obj):
         return {
@@ -364,6 +379,15 @@ class PatientSelfProfileSerializer(serializers.Serializer):
     )
 
     def to_representation(self, instance):
+        # Encrypted medical fields are decrypted only in backend after auth.
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user_can_view_patient_medical_data(user, instance):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "You do not have permission to view this medical data."
+            )
         medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=instance)
         return {
             "id": instance.id,
@@ -561,7 +585,10 @@ class AdminPatientCreateAccountSerializer(serializers.Serializer):
         }
 
     def to_response(self, result):
-        profile = build_compat_patient_profile_payload(result["patient"])
+        profile = build_compat_patient_profile_payload(
+            result["patient"],
+            viewer=self.context["request"].user,
+        )
         profile["national_id"] = self.validated_data.get("national_id", "")
         profile["blood_type"] = self.validated_data.get("blood_type", "")
         payload = {

@@ -4,6 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from accounts.authentication import (
     PENDING_ACCOUNT_DETAIL as AUTH_PENDING_ACCOUNT_DETAIL,
@@ -12,6 +13,7 @@ from accounts.authentication import (
     REJECTED_ACCOUNT_DETAIL as AUTH_REJECTED_ACCOUNT_DETAIL,
 )
 from common.choices import ApprovalStatusChoices, RoleChoices
+from common.permissions import user_can_view_patient_medical_data
 from patients.models import PatientMedicalInfo, PatientProfile
 from patients.services import assign_patient_qr_code, get_patient_by_login_qr_token
 
@@ -87,7 +89,9 @@ def build_admin_auth_payload(user):
     }
 
 
-def build_compat_patient_profile_payload(profile):
+def build_compat_patient_profile_payload(profile, *, viewer=None):
+    if not user_can_view_patient_medical_data(viewer, profile):
+        raise PermissionDenied("You do not have permission to view this medical data.")
     medical_info = getattr(profile, "medical_info", None)
     return {
         "id": profile.id,
@@ -470,7 +474,10 @@ class AuthMeSerializer(serializers.Serializer):
     def to_representation(self, user):
         profile = {}
         if user.role == RoleChoices.PATIENT and hasattr(user, "patient_profile"):
-            profile = build_compat_patient_profile_payload(user.patient_profile)
+            profile = build_compat_patient_profile_payload(
+                user.patient_profile,
+                viewer=user,
+            )
         elif user.role == RoleChoices.PHARMACIST and hasattr(
             user, "pharmacist_profile"
         ):

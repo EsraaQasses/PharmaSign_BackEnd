@@ -175,7 +175,9 @@ class AdminPatientViewSet(
         )
         serializer.is_valid(raise_exception=True)
         patient = serializer.save()
-        return Response(AdminPatientSerializer(patient).data)
+        return Response(
+            AdminPatientSerializer(patient, context={"request": request}).data
+        )
 
     def destroy(self, request, *args, **kwargs):
         patient = self.get_object()
@@ -257,7 +259,10 @@ class PatientSelfProfileViewSet(viewsets.ViewSet):
         return self.request.user.patient_profile
 
     def retrieve(self, request):
-        serializer = PatientSelfProfileSerializer(self._get_patient_profile())
+        serializer = PatientSelfProfileSerializer(
+            self._get_patient_profile(),
+            context={"request": request},
+        )
         return Response(serializer.data)
 
     def partial_update(self, request):
@@ -269,7 +274,12 @@ class PatientSelfProfileViewSet(viewsets.ViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(PatientSelfProfileSerializer(patient).data)
+        return Response(
+            PatientSelfProfileSerializer(
+                patient,
+                context={"request": request},
+            ).data
+        )
 
 
 class PatientSettingsViewSet(viewsets.ViewSet):

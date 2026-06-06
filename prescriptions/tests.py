@@ -128,6 +128,125 @@ class PrescriptionItemEncryptionTests(APITestCase):
         )
         self.assertEqual(item.supporting_text, "Generated private gloss")
 
+    def test_authorized_get_requests_return_plain_prescription_medical_text(self):
+        organization = Organization.objects.create(name="Encrypted RX Access Org")
+        patient_user = User.objects.create_user(
+            email="rx.access.patient@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        patient = PatientProfile.objects.create(
+            user=patient_user,
+            organization=organization,
+            full_name="RX Access Patient",
+        )
+        other_patient_user = User.objects.create_user(
+            email="rx.access.other@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PATIENT,
+        )
+        PatientProfile.objects.create(
+            user=other_patient_user,
+            organization=organization,
+            full_name="Other RX Patient",
+        )
+        pharmacist_user = User.objects.create_user(
+            email="rx.access.pharmacist@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.PHARMACIST,
+        )
+        pharmacy = Pharmacy.objects.create(
+            name="RX Access Pharmacy",
+            address="Damascus",
+            organization=organization,
+            is_contracted_with_organization=True,
+        )
+        pharmacist = PharmacistProfile.objects.create(
+            user=pharmacist_user,
+            pharmacy=pharmacy,
+            full_name="RX Access Pharmacist",
+            is_approved=True,
+        )
+        admin_user = User.objects.create_user(
+            email="rx.access.admin@example.com",
+            password="StrongPass123!",
+            role=RoleChoices.ADMIN,
+        )
+        prescription = Prescription.objects.create(
+            patient=patient,
+            pharmacist=pharmacist,
+            pharmacy=pharmacy,
+            doctor_name="Dr Plain",
+            diagnosis="Private diagnosis",
+            notes="Private notes",
+            status=PrescriptionStatusChoices.SUBMITTED,
+            submitted_at=timezone.now(),
+        )
+        item = PrescriptionItem.objects.create(
+            prescription=prescription,
+            medicine_name="Plain Med",
+            unit_price="1.00",
+            instructions_text="Private instructions",
+            instructions_transcript_raw="Private raw transcript",
+            instructions_transcript_edited="Private approved transcript",
+            supporting_text="Private support text",
+        )
+
+        self.client.force_authenticate(patient_user)
+        patient_response = self.client.get(
+            reverse("patient-prescription-detail", kwargs={"pk": prescription.id})
+        )
+        self.assertEqual(patient_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patient_response.data["diagnosis"], "Private diagnosis")
+        self.assertEqual(
+            patient_response.data["items"][0]["instructions"],
+            "Private instructions",
+        )
+        self.assertEqual(
+            patient_response.data["items"][0]["raw_transcript"],
+            "Private raw transcript",
+        )
+
+        self.client.force_authenticate(pharmacist_user)
+        pharmacist_response = self.client.get(
+            reverse(
+                "pharmacist-prescription-detail",
+                kwargs={"prescription_id": prescription.id},
+            )
+        )
+        self.assertEqual(pharmacist_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(pharmacist_response.data["notes"], "Private notes")
+
+        self.client.force_authenticate(admin_user)
+        admin_response = self.client.get(
+            reverse("admin-prescription-log-detail", kwargs={"pk": prescription.id})
+        )
+        self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            admin_response.data["items"][0]["raw_transcript"],
+            "Private raw transcript",
+        )
+
+        self.client.force_authenticate(other_patient_user)
+        denied_response = self.client.get(
+            reverse("patient-prescription-detail", kwargs={"pk": prescription.id})
+        )
+        self.assertEqual(denied_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                (
+                    "SELECT instructions_text, instructions_transcript_raw "
+                    "FROM prescriptions_prescriptionitem WHERE id = %s"
+                ),
+                [item.id],
+            )
+            raw_instructions, raw_transcript = cursor.fetchone()
+        self.assertNotIn("Private instructions", raw_instructions)
+        self.assertNotIn("Private raw", raw_transcript)
+        self.assertTrue(raw_instructions.startswith("gAAAAA"))
+        self.assertTrue(raw_transcript.startswith("gAAAAA"))
+
 
 class PrescriptionPermissionTests(APITestCase):
     def setUp(self):

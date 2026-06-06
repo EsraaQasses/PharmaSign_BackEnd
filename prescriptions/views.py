@@ -260,7 +260,7 @@ class PrescriptionViewSet(
         serializer.is_valid(raise_exception=True)
         item = serializer.save(prescription=prescription)
         return Response(
-            PrescriptionItemSerializer(item).data,
+            PrescriptionItemSerializer(item, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -346,7 +346,9 @@ class PrescriptionItemViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except RuntimeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
-        return Response(PrescriptionItemSerializer(item).data)
+        return Response(
+            PrescriptionItemSerializer(item, context={"request": request}).data
+        )
 
 
 class PharmacistPrescriptionViewSet(viewsets.ViewSet):
@@ -1224,7 +1226,10 @@ class PatientSignQualityReportViewSet(viewsets.ViewSet):
     http_method_names = ["post", "head", "options"]
 
     def _report_response(self, report):
-        return SignQualityReportSerializer(report).data
+        return SignQualityReportSerializer(
+            report,
+            context={"request": self.request},
+        ).data
 
     def create(self, request, item_id):
         patient_profile = getattr(request.user, "patient_profile", None)
