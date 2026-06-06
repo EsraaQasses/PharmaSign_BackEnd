@@ -31,6 +31,10 @@ class AIPoseServiceUnitTests(APITestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["pose_shape"], [128, 576])
         self.assertEqual(result["file_path"], "generated_outputs/gen_123.npy")
+        mock_post.assert_called_once()
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertTrue(payload["return_video"])
+        self.assertTrue(payload["return_avatar"])
 
     def test_generate_pose_empty_gloss(self):
         with self.assertRaises(AIPoseGenerationError) as ctx:

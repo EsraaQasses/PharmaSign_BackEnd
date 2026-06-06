@@ -6,13 +6,20 @@ from ai_integration.exceptions import AIPoseGenerationError
 logger = logging.getLogger(__name__)
 
 
-def generate_pose_from_gloss(gloss: str, return_format: str = "npy") -> dict:
+def generate_pose_from_gloss(
+    gloss: str,
+    return_format: str = "npy",
+    return_video: bool = True,
+    return_avatar: bool = True,
+) -> dict:
     """
     Sends a request to the external FastAPI Gloss-to-Pose AI service to generate a pose.
     
     Args:
         gloss (str): The text gloss to generate the pose for.
         return_format (str): The format to return, defaults to 'npy'.
+        return_video (bool): Whether the AI service should return a skeleton video.
+        return_avatar (bool): Whether the AI service should return an avatar video.
         
     Returns:
         dict: The parsed successful JSON response from the AI service.
@@ -33,7 +40,9 @@ def generate_pose_from_gloss(gloss: str, return_format: str = "npy") -> dict:
         
     payload = {
         "gloss": gloss.strip(),
-        "return_format": return_format
+        "return_format": return_format,
+        "return_video": return_video,
+        "return_avatar": return_avatar,
     }
     
     timeout = getattr(settings, "AI_SERVICE_TIMEOUT", 60)

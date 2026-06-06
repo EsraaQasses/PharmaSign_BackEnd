@@ -3348,6 +3348,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             "pose_shape": [128, 576],
             "pose_file": "/media/generated/poses/pose_mock.npy",
             "generated_video_url": "/media/generated/skeleton_videos/skeleton_mock.mp4",
+            "avatar_video_url": "/media/generated/avatar_videos/avatar_mock.mp4",
             "metadata": {"model": "v4_bounded_offset_trimmed", "device": "cuda"},
         }
         prescription = self._create_prescription()
@@ -3371,7 +3372,7 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         self.assertEqual(response.data["sign_status"], SignStatusChoices.COMPLETED)
         self.assertEqual(response.data["output_type"], "gloss_pose_and_video")
         self.assertIn(
-            "/media/generated/skeleton_videos/skeleton_mock.mp4",
+            "/media/generated/avatar_videos/avatar_mock.mp4",
             response.data["video_url"],
         )
         self.assertTrue(response.data["pose"]["success"])
@@ -3392,6 +3393,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
             item.generated_video_url,
             "/media/generated/skeleton_videos/skeleton_mock.mp4",
         )
+        self.assertEqual(
+            item.avatar_video_url,
+            "/media/generated/avatar_videos/avatar_mock.mp4",
+        )
         self.assertEqual(item.pose_shape, [128, 576])
         self.assertEqual(
             item.ai_metadata["pose"],
@@ -3403,7 +3408,10 @@ class PharmacistPrescriptionMVPTests(APITestCase):
         # Assert correct calls
         mock_generate_sign_gloss.assert_called_once_with("خذ حبة في الصباح قبل الطعام")
         mock_generate_pose_from_gloss.assert_called_once_with(
-            "دواء حبة الصبح قبل الاكل", return_format="npy"
+            "دواء حبة الصبح قبل الاكل",
+            return_format="npy",
+            return_video=True,
+            return_avatar=True,
         )
 
     @patch("prescriptions.views.generate_pose_from_gloss")

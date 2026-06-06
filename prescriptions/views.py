@@ -930,7 +930,12 @@ class PharmacistPrescriptionViewSet(viewsets.ViewSet):
         item.save(update_fields=["supporting_text", "ai_metadata", "updated_at"])
 
         try:
-            pose_result = generate_pose_from_gloss(gloss_text, return_format="npy")
+            pose_result = generate_pose_from_gloss(
+                gloss_text,
+                return_format="npy",
+                return_video=True,
+                return_avatar=True,
+            )
             item.pose_file_path = (
                 pose_result.get("pose_file")
                 or pose_result.get("file_path")
