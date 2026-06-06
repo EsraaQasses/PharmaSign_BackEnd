@@ -199,7 +199,10 @@ class AuthViewSet(viewsets.ViewSet):
 
     def _build_auth_response(self, user, status_code=status.HTTP_200_OK):
         refresh = RefreshToken.for_user(user)
-        payload = AuthMeSerializer(user).data
+        payload = AuthMeSerializer(
+            user,
+            context={"request": self.request},
+        ).data
         payload["access"] = str(refresh.access_token)
         payload["refresh"] = str(refresh)
         return Response(
@@ -889,7 +892,12 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
-        return Response(AuthMeSerializer(request.user).data)
+        return Response(
+            AuthMeSerializer(
+                request.user,
+                context={"request": request},
+            ).data
+        )
 
     @action(detail=False, methods=["get"], url_path="admin/auth/me")
     def admin_me(self, request):

@@ -1,6 +1,8 @@
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.db import connection
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -16,12 +18,13 @@ from common.choices import (
     RoleChoices,
 )
 from organizations.models import Organization, OrganizationStaffProfile
-from patients.models import PatientEnrollment, PatientProfile
+from patients.models import PatientEnrollment, PatientMedicalInfo, PatientProfile
 from pharmacies.models import PharmacistProfile, Pharmacy
 from prescriptions.models import Prescription, PrescriptionItem, SignQualityReport
 
 from .models import PhoneOTP, User
 from .otp_delivery import send_otp_code
+from .serializers import AuthMeSerializer
 
 
 class OTPDeliveryTests(APITestCase):
@@ -628,6 +631,130 @@ class AuthAndPatientFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["user"]["phone_number"], "5557017")
+
+    def test_patient_login_returns_plaintext_medical_profile(self):
+        user = User.objects.create_user(
+            email="medical.login.patient@example.com",
+            password="StrongPass123!",
+            phone_number="5557040",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        patient = PatientProfile.objects.create(
+            user=user,
+            full_name="Medical Login Patient",
+        )
+        medical_info = PatientMedicalInfo.objects.create(
+            patient=patient,
+            blood_type="A_POS",
+            allergies="Penicillin",
+            chronic_conditions="Asthma",
+            notes="Vitamin D",
+        )
+
+        response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "phone_number": "5557040",
+                "password": "StrongPass123!",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        profile = response.data["profile"]
+        self.assertEqual(profile["blood_type"], "A_POS")
+        self.assertEqual(profile["allergies"], "Penicillin")
+        self.assertEqual(profile["chronic_conditions"], "Asthma")
+        self.assertEqual(profile["regular_medications"], "Vitamin D")
+        self.assertNotIn("gAAAAA", str(profile))
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                (
+                    "SELECT allergies, chronic_conditions, notes "
+                    "FROM patients_patientmedicalinfo WHERE id = %s"
+                ),
+                [medical_info.id],
+            )
+            raw_allergies, raw_chronic, raw_notes = cursor.fetchone()
+        self.assertTrue(raw_allergies.startswith("gAAAAA"))
+        self.assertTrue(raw_chronic.startswith("gAAAAA"))
+        self.assertTrue(raw_notes.startswith("gAAAAA"))
+        self.assertNotIn("Penicillin", raw_allergies)
+        self.assertNotIn("Asthma", raw_chronic)
+        self.assertNotIn("Vitamin D", raw_notes)
+
+    def test_auth_me_returns_plaintext_medical_profile_for_patient_owner(self):
+        user = User.objects.create_user(
+            email="medical.me.patient@example.com",
+            password="StrongPass123!",
+            phone_number="5557041",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        patient = PatientProfile.objects.create(
+            user=user,
+            full_name="Medical Me Patient",
+        )
+        PatientMedicalInfo.objects.create(
+            patient=patient,
+            blood_type="B_POS",
+            allergies="Aspirin",
+            chronic_conditions="Diabetes",
+            notes="Metformin",
+        )
+
+        self.client.force_authenticate(user)
+        response = self.client.get(reverse("accounts:me"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        profile = response.data["profile"]
+        self.assertEqual(profile["blood_type"], "B_POS")
+        self.assertEqual(profile["allergies"], "Aspirin")
+        self.assertEqual(profile["chronic_conditions"], "Diabetes")
+        self.assertEqual(profile["regular_medications"], "Metformin")
+        self.assertNotIn("gAAAAA", str(profile))
+
+    def test_auth_serializer_hides_unauthorized_medical_profile_viewer(self):
+        owner = User.objects.create_user(
+            email="medical.owner.patient@example.com",
+            password="StrongPass123!",
+            phone_number="5557042",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        owner_profile = PatientProfile.objects.create(
+            user=owner,
+            full_name="Medical Owner",
+        )
+        PatientMedicalInfo.objects.create(
+            patient=owner_profile,
+            allergies="Private allergy",
+            chronic_conditions="Private condition",
+            notes="Private medication",
+        )
+        other_user = User.objects.create_user(
+            email="medical.other.patient@example.com",
+            password="StrongPass123!",
+            phone_number="5557043",
+            role=RoleChoices.PATIENT,
+            approval_status=ApprovalStatusChoices.APPROVED,
+            is_verified=True,
+        )
+        PatientProfile.objects.create(user=other_user, full_name="Other Patient")
+
+        serializer = AuthMeSerializer(
+            owner,
+            context={"request": SimpleNamespace(user=other_user)},
+        )
+
+        self.assertEqual(serializer.data["profile"], {})
+        self.assertNotIn("Private allergy", str(serializer.data))
+        self.assertNotIn("gAAAAA", str(serializer.data))
 
     def test_login_without_identifier_fails(self):
         response = self.client.post(
@@ -1494,6 +1621,12 @@ class AuthAndPatientFlowTests(APITestCase):
             qr_code_value="qr-login-token",
             qr_is_active=True,
         )
+        medical_info = PatientMedicalInfo.objects.create(
+            patient=profile,
+            allergies="Penicillin",
+            chronic_conditions="Asthma",
+            notes="Vitamin D",
+        )
         profile.set_record_access_pin("1234")
         profile.save(update_fields=["record_access_pin_hash", "updated_at"])
 
@@ -1512,6 +1645,23 @@ class AuthAndPatientFlowTests(APITestCase):
         self.assertIn("profile", response.data)
         self.assertIn("must_set_password", response.data)
         self.assertFalse(response.data["must_set_password"])
+        self.assertEqual(response.data["profile"]["allergies"], "Penicillin")
+        self.assertEqual(response.data["profile"]["chronic_conditions"], "Asthma")
+        self.assertEqual(response.data["profile"]["regular_medications"], "Vitamin D")
+        self.assertNotIn("gAAAAA", str(response.data["profile"]))
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                (
+                    "SELECT allergies, chronic_conditions, notes "
+                    "FROM patients_patientmedicalinfo WHERE id = %s"
+                ),
+                [medical_info.id],
+            )
+            raw_allergies, raw_chronic, raw_notes = cursor.fetchone()
+        self.assertTrue(raw_allergies.startswith("gAAAAA"))
+        self.assertTrue(raw_chronic.startswith("gAAAAA"))
+        self.assertTrue(raw_notes.startswith("gAAAAA"))
 
     def test_patient_qr_login_with_unusable_password_requires_password_setup(self):
         user = User.objects.create_user(

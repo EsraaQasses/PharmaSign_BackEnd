@@ -22,6 +22,26 @@ def get_field_encryption_key():
     return base64.urlsafe_b64encode(digest)
 
 
+def decrypt_encrypted_field_value(value, default=""):
+    if value is None or value == "":
+        return default
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    if not isinstance(value, str):
+        return str(value)
+    if not value.startswith("gAAAAA"):
+        return value
+    try:
+        decrypted = Fernet(get_field_encryption_key()).decrypt(value.encode("utf-8"))
+        return decrypted.decode("utf-8")
+    except InvalidToken:
+        logger.warning("Encrypted field value could not be decrypted.")
+        return default
+    except Exception as exc:
+        logger.warning("Encrypted field value could not be decrypted: %s", exc)
+        return default
+
+
 class EncryptedFieldMixin:
     description = "Field-level encrypted field using cryptography.fernet"
 

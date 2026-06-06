@@ -4,7 +4,6 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 
 from accounts.authentication import (
     PENDING_ACCOUNT_DETAIL as AUTH_PENDING_ACCOUNT_DETAIL,
@@ -13,6 +12,7 @@ from accounts.authentication import (
     REJECTED_ACCOUNT_DETAIL as AUTH_REJECTED_ACCOUNT_DETAIL,
 )
 from common.choices import ApprovalStatusChoices, RoleChoices
+from common.fields import decrypt_encrypted_field_value
 from common.permissions import user_can_view_patient_medical_data
 from patients.models import PatientMedicalInfo, PatientProfile
 from patients.services import assign_patient_qr_code, get_patient_by_login_qr_token
@@ -89,18 +89,26 @@ def build_admin_auth_payload(user):
     }
 
 
+def _safe_medical_value(value):
+    return decrypt_encrypted_field_value(value, default="")
+
+
 def build_compat_patient_profile_payload(profile, *, viewer=None):
     if not user_can_view_patient_medical_data(viewer, profile):
-        raise PermissionDenied("You do not have permission to view this medical data.")
-    medical_info = getattr(profile, "medical_info", None)
+        return {}
+    medical_info, _ = PatientMedicalInfo.objects.get_or_create(patient=profile)
     return {
         "id": profile.id,
         "full_name": profile.full_name,
         "national_id": "",
         "blood_type": getattr(medical_info, "blood_type", ""),
-        "allergies": getattr(medical_info, "allergies", ""),
-        "chronic_conditions": getattr(medical_info, "chronic_conditions", ""),
-        "regular_medications": getattr(medical_info, "notes", ""),
+        "allergies": _safe_medical_value(getattr(medical_info, "allergies", "")),
+        "chronic_conditions": _safe_medical_value(
+            getattr(medical_info, "chronic_conditions", "")
+        ),
+        "regular_medications": _safe_medical_value(
+            getattr(medical_info, "notes", "")
+        ),
         "is_pregnant": getattr(medical_info, "is_pregnant", False) or False,
     }
 
@@ -474,9 +482,16 @@ class AuthMeSerializer(serializers.Serializer):
     def to_representation(self, user):
         profile = {}
         if user.role == RoleChoices.PATIENT and hasattr(user, "patient_profile"):
+            request = self.context.get("request")
+            request_user = getattr(request, "user", None)
+            viewer = (
+                request_user
+                if getattr(request_user, "is_authenticated", False)
+                else user
+            )
             profile = build_compat_patient_profile_payload(
                 user.patient_profile,
-                viewer=user,
+                viewer=viewer,
             )
         elif user.role == RoleChoices.PHARMACIST and hasattr(
             user, "pharmacist_profile"
