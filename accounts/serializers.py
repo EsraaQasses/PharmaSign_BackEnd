@@ -172,6 +172,15 @@ class UserSerializer(serializers.ModelSerializer):
                 "pharmacy_id": profile.pharmacy_id,
                 "is_approved": profile.is_approved,
             }
+        if hasattr(obj, "doctor_profile"):
+            profile = obj.doctor_profile
+            return {
+                "doctor_id": profile.id,
+                "full_name": profile.full_name,
+                "specialty": profile.specialty,
+                "workplace": profile.workplace,
+                "is_approved": profile.is_approved,
+            }
         if hasattr(obj, "organization_staff_profile"):
             profile = obj.organization_staff_profile
             return {
