@@ -61,6 +61,13 @@ class Prescription(TimeStampedModel):
         null=True,
         blank=True,
     )
+    medical_visit = models.ForeignKey(
+        "doctors.MedicalVisit",
+        on_delete=models.SET_NULL,
+        related_name="prescriptions",
+        null=True,
+        blank=True,
+    )
     doctor_name = models.CharField(max_length=255)
     doctor_specialty = models.CharField(max_length=255, blank=True)
     diagnosis = EncryptedCharField(max_length=255, blank=True)
@@ -90,6 +97,7 @@ class Prescription(TimeStampedModel):
             models.Index(fields=["pharmacist", "status"]),
             models.Index(fields=["pharmacy", "status"]),
             models.Index(fields=["session"]),
+            models.Index(fields=["medical_visit"]),
         ]
 
     def clean(self):
