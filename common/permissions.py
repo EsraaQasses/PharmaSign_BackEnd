@@ -23,6 +23,10 @@ def is_patient_role(user):
     return bool(user and user.is_authenticated and user.role == RoleChoices.PATIENT)
 
 
+def is_doctor_role(user):
+    return bool(user and user.is_authenticated and user.role == RoleChoices.DOCTOR)
+
+
 def get_staff_organization(user):
     profile = get_staff_profile(user)
     return getattr(profile, "organization", None)
@@ -44,6 +48,17 @@ def has_pharmacist_management_access(user):
 
 def get_pharmacist_profile(user):
     return getattr(user, "pharmacist_profile", None)
+
+
+def get_doctor_profile(user):
+    return getattr(user, "doctor_profile", None)
+
+
+def is_approved_doctor(user):
+    if not is_doctor_role(user):
+        return False
+    profile = get_doctor_profile(user)
+    return bool(profile and profile.is_approved)
 
 
 def is_approved_pharmacist(user):
@@ -119,6 +134,18 @@ class IsPharmacistRole(BasePermission):
 class IsPatientRole(BasePermission):
     def has_permission(self, request, view):
         return is_patient_role(request.user)
+
+
+class IsDoctorRole(BasePermission):
+    def has_permission(self, request, view):
+        return is_doctor_role(request.user)
+
+
+class IsApprovedDoctorRole(BasePermission):
+    message = "Doctor account is not approved."
+
+    def has_permission(self, request, view):
+        return is_approved_doctor(request.user)
 
 
 class CanManagePatients(BasePermission):
