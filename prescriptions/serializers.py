@@ -12,6 +12,7 @@ from common.uploads import (
     validate_video_upload,
 )
 from patients.models import PatientProfile, PatientSession
+from doctors.models import MedicalVisit
 from transcriptions.validators import validate_transcription_audio_upload
 
 from .models import (
@@ -510,6 +511,7 @@ class PrescriptionSerializer(
             "pharmacy",
             "session_id",
             "session",
+            "medical_visit",
             "doctor_name",
             "doctor_specialty",
             "diagnosis",
@@ -531,6 +533,7 @@ class PrescriptionSerializer(
             "pharmacist",
             "pharmacy",
             "session",
+            "medical_visit",
             "status",
             "created_at",
             "updated_at",
@@ -971,6 +974,7 @@ class PharmacistPrescriptionSerializer(
             "pharmacy",
             "session",
             "session_id",
+            "medical_visit",
             "doctor_name",
             "doctor_specialty",
             "diagnosis",
@@ -1013,7 +1017,8 @@ class PharmacistPrescriptionListSerializer(PharmacistPrescriptionSerializer):
 class PharmacistPrescriptionCreateSerializer(serializers.Serializer):
     session_id = serializers.IntegerField()
     patient_id = serializers.IntegerField()
-    doctor_name = serializers.CharField(max_length=255)
+    medical_visit_id = serializers.IntegerField(required=False)
+    doctor_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     doctor_specialty = serializers.CharField(
         max_length=255, required=False, allow_blank=True
     )
@@ -1052,6 +1057,24 @@ class PharmacistPrescriptionCreateSerializer(serializers.Serializer):
                     "detail": "A valid active patient session is required to create a prescription."
                 }
             )
+
+        visit = None
+        visit_id = attrs.get("medical_visit_id")
+        if visit_id is not None:
+            try:
+                visit = MedicalVisit.objects.select_related("doctor").prefetch_related(
+                    "medications"
+                ).get(pk=visit_id, patient=session.patient)
+            except MedicalVisit.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"detail": "Medical visit was not found for this patient."}
+                )
+            attrs["medical_visit"] = visit
+
+        if visit is None and not attrs.get("doctor_name"):
+            raise serializers.ValidationError(
+                {"doctor_name": "Doctor name is required when no medical visit is selected."}
+            )
         attrs["session"] = session
         return attrs
 
@@ -1060,22 +1083,48 @@ class PharmacistPrescriptionCreateSerializer(serializers.Serializer):
         pharmacist = request.user.pharmacist_profile
         items_data = validated_data.pop("items", [])
         session = validated_data.pop("session")
+        visit = validated_data.pop("medical_visit", None)
         validated_data.pop("session_id", None)
         validated_data.pop("patient_id", None)
+        validated_data.pop("medical_visit_id", None)
+
+        if visit is not None:
+            validated_data["doctor_name"] = visit.doctor.full_name
+            validated_data["doctor_specialty"] = visit.doctor.specialty
+            validated_data["diagnosis"] = visit.diagnosis
+            if not validated_data.get("notes"):
+                validated_data["notes"] = visit.doctor_notes
+
         prescription = Prescription.objects.create(
             patient=session.patient,
             pharmacist=pharmacist,
             pharmacy=pharmacist.pharmacy,
             session=session,
+            medical_visit=visit,
             status=PrescriptionStatusChoices.DRAFT,
             **validated_data,
         )
-        for item_data in items_data:
-            PrescriptionItem.objects.create(
-                prescription=prescription,
-                sign_status=SignStatusChoices.PENDING,
-                **item_data,
-            )
+
+        if visit is not None and not items_data:
+            for medication in visit.medications.all():
+                PrescriptionItem.objects.create(
+                    prescription=prescription,
+                    medicine_name=medication.medicine_name,
+                    dosage=medication.dosage,
+                    frequency=medication.frequency,
+                    duration=medication.duration,
+                    instructions_text=medication.doctor_instructions,
+                    sign_status=SignStatusChoices.PENDING,
+                    unit_price=0,
+                    quantity=1,
+                )
+        else:
+            for item_data in items_data:
+                PrescriptionItem.objects.create(
+                    prescription=prescription,
+                    sign_status=SignStatusChoices.PENDING,
+                    **item_data,
+                )
         return prescription
 
 
