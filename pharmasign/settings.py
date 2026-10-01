@@ -85,6 +85,7 @@ LOCAL_APPS = [
     "organizations",
     "patients",
     "pharmacies",
+    "doctors",
     "prescriptions",
     "transcriptions",
     "ai_integration",
